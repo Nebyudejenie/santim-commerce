@@ -1,0 +1,514 @@
+// ============================================================================
+// santim-commerce — data model
+//
+// Design rules encoded here, each of which is a lesson:
+//
+//  1. MONEY IS AN INTEGER. Every amount is `Int` santim (1/100 ETB). There is
+//     no Float anywhere in this schema, and there never will be.
+//  2. PRODUCT ≠ VARIANT. Stock, price, and SKU live on the variant. This is
+//     the single structural difference between a toy shop and a real one.
+//  3. INVENTORY IS THREE NUMBERS, not one: onHand, reserved, and the derived
+//     available = onHand - reserved. Reservations expire.
+//  4. STATE IS AN ENUM, NOT A BOOLEAN. `paid: Boolean` cannot express
+//     "authorised but not captured", "refunded", or "partially fulfilled".
+//  5. PRICES ARE SNAPSHOTTED onto the order line. If the catalogue price
+//     changes tomorrow, yesterday's invoice must not change with it.
+//  6. EVERY EXTERNAL EVENT IS PERSISTED before it is acted on, with a unique
+//     constraint that makes duplicate delivery a no-op.
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ----------------------------------------------------------------- catalogue
+
+model Product {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  title       String
+  subtitle    String?
+  description String   @db.Text
+  brand       String?
+  status      ProductStatus @default(DRAFT)
+
+  // Merchandising
+  featured    Boolean  @default(false)
+  heroImage   String?
+  images      ProductImage[]
+  variants    Variant[]
+  collections CollectionProduct[]
+
+  // SEO
+  metaTitle       String?
+  metaDescription String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, featured])
+  @@map("products")
+}
+
+enum ProductStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+model ProductImage {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  url       String
+  alt       String
+  position  Int     @default(0)
+  // Stored so the UI can reserve exact space and never shift layout (CLS).
+  width     Int?
+  height    Int?
+  blurHash  String?
+
+  @@index([productId, position])
+  @@map("product_images")
+}
+
+/// A buyable thing. Price and stock live HERE, not on Product.
+model Variant {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  sku       String  @unique
+  title     String  // "Black / 42"
+  /// Selected options as {"Colour":"Black","Size":"42"} — kept denormalised
+  /// for display; the authoritative option data is in VariantOption.
+  options   Json    @default("{}")
+
+  /// Price in SANTIM. Never a Float.
+  priceSantim        Int
+  /// Original price for strike-through display, in santim.
+  compareAtSantim    Int?
+  /// What this unit cost us, for margin reporting.
+  costSantim         Int?
+
+  weightGrams Int?
+  barcode     String?
+  position    Int     @default(0)
+  active      Boolean @default(true)
+
+  inventory    Inventory?
+  cartLines    CartLine[]
+  orderLines   OrderLine[]
+  reservations InventoryReservation[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([productId, active])
+  @@map("variants")
+}
+
+/// Inventory as three numbers. `available` is derived, never stored — a stored
+/// derived value is a bug waiting for a race condition.
+model Inventory {
+  variantId String  @id
+  variant   Variant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  /// Physically in the warehouse.
+  onHand    Int     @default(0)
+  /// Held by in-flight checkouts. available = onHand - reserved.
+  reserved  Int     @default(0)
+  /// Allow selling below zero (backorder)?
+  allowBackorder Boolean @default(false)
+  /// Below this, the storefront shows "only N left".
+  lowStockThreshold Int  @default(5)
+
+  updatedAt DateTime @updatedAt
+
+  @@map("inventory")
+}
+
+/// A time-boxed hold on stock, created at checkout and released on expiry.
+/// Without this, two customers can buy the last unit in the seconds between
+/// "add to cart" and "payment confirmed" — and one of them gets an apology.
+model InventoryReservation {
+  id        String  @id @default(cuid())
+  variantId String
+  variant   Variant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  orderId   String?
+  order     Order?  @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  quantity  Int
+  status    ReservationStatus @default(HELD)
+  /// Reservations MUST expire, or an abandoned checkout removes stock forever.
+  expiresAt DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, expiresAt])
+  @@index([orderId])
+  @@map("inventory_reservations")
+}
+
+enum ReservationStatus {
+  HELD
+  COMMITTED // payment succeeded; stock deducted from onHand
+  RELEASED  // payment failed or expired; stock returned
+}
+
+model Collection {
+  id          String  @id @default(cuid())
+  slug        String  @unique
+  title       String
+  description String?
+  heroImage   String?
+  position    Int     @default(0)
+  products    CollectionProduct[]
+
+  @@map("collections")
+}
+
+model CollectionProduct {
+  collectionId String
+  productId    String
+  position     Int    @default(0)
+  collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  product      Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@id([collectionId, productId])
+  @@map("collection_products")
+}
+
+// --------------------------------------------------------------------- users
+
+model User {
+  id           String  @id @default(cuid())
+  email        String  @unique
+  phone        String? @unique  // E.164, normalised at the boundary
+  name         String?
+  passwordHash String?
+  role         UserRole @default(CUSTOMER)
+  emailVerifiedAt DateTime?
+
+  orders    Order[]
+  carts     Cart[]
+  addresses Address[]
+  sessions  Session[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("users")
+}
+
+enum UserRole {
+  CUSTOMER
+  STAFF
+  ADMIN
+}
+
+/// Database-backed sessions, not stateless JWTs.
+///
+/// A JWT session is unrevocable without a blocklist — the moment you need
+/// one, you have rebuilt this table anyway, just with extra steps and a
+/// window where a revoked token still works. For a payments-adjacent app,
+/// "log this device out right now" (compromised account, lost phone) has to
+/// be instant and unconditional. A row delete gives that; a stateless token
+/// does not.
+model Session {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// SHA-256 of the cookie value — never the raw token. A leaked database
+  /// backup must not hand out working sessions, the same reasoning applied
+  /// to the SantimPay private key never appearing in logs.
+  tokenHash String @unique
+
+  userAgent String?
+  ipAddress String?
+
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+  expiresAt  DateTime
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+model Address {
+  id         String  @id @default(cuid())
+  userId     String?
+  user       User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  fullName   String
+  phone      String
+  city       String
+  subCity    String?
+  woreda     String?
+  streetLine String?
+  landmark   String?
+  notes      String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("addresses")
+}
+
+// ---------------------------------------------------------------------- cart
+
+model Cart {
+  id        String  @id @default(cuid())
+  /// Anonymous cart token, set as an httpOnly cookie before login.
+  token     String  @unique
+  userId    String?
+  user      User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  status    CartStatus @default(ACTIVE)
+  lines     CartLine[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  expiresAt DateTime?
+
+  @@index([userId, status])
+  @@map("carts")
+}
+
+enum CartStatus {
+  ACTIVE
+  CONVERTED // became an order
+  ABANDONED
+}
+
+model CartLine {
+  id        String  @id @default(cuid())
+  cartId    String
+  cart      Cart    @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  variantId String
+  variant   Variant @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  quantity  Int
+
+  /// Price when the item was added. Compared against the live price at
+  /// checkout so we can tell the customer "this went up" instead of silently
+  /// charging a different number than the one they saw.
+  unitPriceSantim Int
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([cartId, variantId])
+  @@map("cart_lines")
+}
+
+// -------------------------------------------------------------------- orders
+
+model Order {
+  id          String @id @default(cuid())
+  /// Human-facing, e.g. "SC-2K4F7Q". Shown to customers and support.
+  orderNumber String @unique
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  // Contact captured at checkout — guests are first-class.
+  email String
+  phone String
+
+  status          OrderStatus     @default(PENDING_PAYMENT)
+  fulfilmentStatus FulfilmentStatus @default(UNFULFILLED)
+
+  // Every total in santim, snapshotted at placement.
+  subtotalSantim  Int
+  discountSantim  Int @default(0)
+  shippingSantim  Int @default(0)
+  taxSantim       Int @default(0)
+  totalSantim     Int
+  currency        String @default("ETB")
+
+  shippingAddress Json?
+  billingAddress  Json?
+  customerNote    String?
+
+  lines        OrderLine[]
+  payments     PaymentIntent[]
+  events       OrderEvent[]
+  reservations InventoryReservation[]
+
+  placedAt    DateTime @default(now())
+  paidAt      DateTime?
+  cancelledAt DateTime?
+  updatedAt   DateTime @updatedAt
+
+  @@index([status, placedAt])
+  @@index([userId, placedAt])
+  @@index([email])
+  @@map("orders")
+}
+
+enum OrderStatus {
+  PENDING_PAYMENT // created, awaiting the gateway
+  PAID            // money confirmed by the status API
+  FAILED          // payment failed or declined
+  CANCELLED       // cancelled by customer or by reservation expiry
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum FulfilmentStatus {
+  UNFULFILLED
+  PARTIALLY_FULFILLED
+  FULFILLED
+  RETURNED
+}
+
+model OrderLine {
+  id        String  @id @default(cuid())
+  orderId   String
+  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  variantId String?
+  variant   Variant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+
+  // Snapshotted so the invoice stays true even if the catalogue changes or
+  // the product is deleted. An order line is a historical record, not a view.
+  sku             String
+  productTitle    String
+  variantTitle    String
+  imageUrl        String?
+  unitPriceSantim Int
+  quantity        Int
+  lineTotalSantim Int
+
+  @@index([orderId])
+  @@map("order_lines")
+}
+
+/// Append-only audit trail. When a customer asks "what happened to my order",
+/// this is the answer, and when an auditor asks, this is the evidence.
+model OrderEvent {
+  id        String   @id @default(cuid())
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  type      String   // "order.placed", "payment.completed", "stock.committed"
+  message   String?
+  data      Json?
+  /// Who caused it: "system", "webhook", "reconciler", or a user id.
+  actor     String   @default("system")
+  createdAt DateTime @default(now())
+
+  @@index([orderId, createdAt])
+  @@map("order_events")
+}
+
+// ------------------------------------------------------------------ payments
+
+/// A single attempt to collect money. An order can have several — a customer
+/// whose Telebirr payment fails may retry with CBE Birr, and both attempts
+/// must be recorded. This is why payment state does not live on Order.
+model PaymentIntent {
+  id      String @id @default(cuid())
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  /// OUR id sent to SantimPay as `id`. THE idempotency key for the payment.
+  /// Generated once, persisted BEFORE the outbound call.
+  merchantTxnId String @unique
+
+  provider String @default("santimpay")
+  status   PaymentStatus @default(CREATED)
+
+  amountSantim     Int
+  commissionSantim Int  @default(0)
+  totalSantim      Int  @default(0)
+  currency         String @default("ETB")
+
+  /// Set once the gateway responds.
+  gatewayTxnId  String?  @unique
+  /// The bank's/channel's own reference — what the customer's SMS shows.
+  channelRef    String?
+  channel       String?  // "Telebirr", "CBE Birr", ...
+  msisdn        String?
+  paymentUrl    String?  @db.Text
+
+  failureCode    String?
+  failureMessage String?
+
+  /// Poller bookkeeping.
+  pollAttempts  Int       @default(0)
+  nextPollAt    DateTime?
+  lastPolledAt  DateTime?
+
+  events    WebhookEvent[]
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  completedAt DateTime?
+
+  @@index([status, nextPollAt])
+  @@index([orderId])
+  @@map("payment_intents")
+}
+
+enum PaymentStatus {
+  CREATED    // intent persisted, gateway not yet called
+  PENDING    // gateway has it; awaiting the channel
+  COMPLETED
+  FAILED
+  DECLINED
+  EXPIRED    // never resolved within our window
+  REFUNDED
+}
+
+/// Every inbound callback, stored raw BEFORE processing.
+///
+/// The unique constraint on (provider, gatewayTxnId, status) is what makes
+/// duplicate webhook delivery a no-op. Gateways retry; assume at-least-once
+/// delivery, always. This table is also the forensic record when a customer
+/// insists they paid.
+model WebhookEvent {
+  id       String @id @default(cuid())
+  provider String @default("santimpay")
+
+  gatewayTxnId String
+  status       String
+  paymentIntentId String?
+  paymentIntent   PaymentIntent? @relation(fields: [paymentIntentId], references: [id], onDelete: SetNull)
+
+  /// Raw body exactly as received. Never re-serialised.
+  rawBody       String  @db.Text
+  signature     String? @db.Text
+  signatureValid Boolean @default(false)
+
+  processedAt DateTime?
+  error       String?  @db.Text
+
+  receivedAt DateTime @default(now())
+
+  @@unique([provider, gatewayTxnId, status])
+  @@index([processedAt])
+  @@map("webhook_events")
+}
+
+/// Transactional outbox: side effects (email, SMS, search reindex) are written
+/// in the SAME database transaction as the state change that caused them, then
+/// published by a worker. This is the standard answer to the dual-write
+/// problem — you cannot atomically commit a row and call an external API.
+model OutboxMessage {
+  id          String   @id @default(cuid())
+  topic       String
+  payload     Json
+  attempts    Int      @default(0)
+  publishedAt DateTime?
+  lastError   String?  @db.Text
+  availableAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@index([publishedAt, availableAt])
+  @@map("outbox_messages")
+}
