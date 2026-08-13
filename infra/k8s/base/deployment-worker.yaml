@@ -1,0 +1,99 @@
+# =============================================================================
+# The worker: settlement poller, hourly reconciler, reservation expiry,
+# outbox publisher. See src/worker/index.ts's module doc for what each loop
+# does and why a webhook-only integration needs this process to exist at all.
+#
+# replicas: 1 — DELIBERATE, READ BEFORE CHANGING.
+# settlePayment() is idempotent (the order/payment state machine turns a
+# redundant call into a no-op — see state-machine.ts), so running N worker
+# replicas would not double-charge anyone. But N replicas WOULD mean N pollers
+# racing to claim the same due-for-poll rows, doing (up to) N× the SantimPay
+# API calls for zero additional throughput, since the workload here is a fixed
+# trickle of unresolved payments, not something that benefits from
+# parallelism. If that assumption stops holding at scale, the correct fix is
+# a claim/lease pattern (`SELECT ... FOR UPDATE SKIP LOCKED`) before adding
+# replicas — not just bumping this number.
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: santim-worker
+  namespace: santim-commerce
+  labels:
+    app.kubernetes.io/name: santim-worker
+    app.kubernetes.io/part-of: santim-commerce
+spec:
+  replicas: 1
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: santim-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: santim-worker
+        app.kubernetes.io/part-of: santim-commerce
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /metrics
+        prometheus.io/port: "9091"
+    spec:
+      serviceAccountName: santim-worker
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: worker
+          image: ghcr.io/example-org/santim-commerce:latest
+          imagePullPolicy: IfNotPresent
+          command: ["pnpm", "--filter", "@santim/web", "worker"]
+          ports:
+            - name: metrics
+              containerPort: 9091
+          envFrom:
+            - configMapRef:
+                name: santim-web-config
+            - secretRef:
+                name: santim-web-secrets
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 384Mi
+          # The worker's own metrics port doubles as its liveness signal — a
+          # bound HTTP server proves the process finished booting past
+          # env() validation (see main()'s call order in worker/index.ts).
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          # No separate readinessProbe: the worker is never behind a Service
+          # that routes customer traffic, so "ready to receive requests" does
+          # not apply the way it does to the web tier.
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      # Generous: an in-flight settlePayment() transaction plus a live
+      # SantimPay HTTP call should finish, not be cut off mid-write.
+      terminationGracePeriodSeconds: 45

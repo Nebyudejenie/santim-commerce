@@ -1,0 +1,113 @@
+# =============================================================================
+# Deploy — triggered by a version tag, never by a bare push to main.
+#
+# WHY A TAG AND NOT "every merge to main"
+# Continuous deployment sounds good until a payment system does it: an
+# untagged auto-deploy means "someone merged" and "money-moving code went to
+# production" are the same event, with no human checkpoint and no clean
+# rollback target. Tagging is the checkpoint — `git push --tags` after
+# deciding a commit is actually ready, and the tag itself becomes the
+# rollback target (`git checkout v1.4.2`, redeploy that image digest).
+#
+# This workflow builds the SAME Dockerfile CI already validated, pushes it by
+# DIGEST (never a mutable tag like `latest` — see the image reference below),
+# and applies it with `kubectl set image` plus a scripted rollout wait, so a
+# bad deploy is caught here, in CI, rather than by a customer mid-checkout.
+# =============================================================================
+
+name: Deploy
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write  # OIDC federation to the registry/cluster — no long-lived cloud keys stored as secrets
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push:
+    name: Build, sign, and push
+    runs-on: ubuntu-latest
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/docker/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}
+          cache-from: type=gha
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      # Keyless signing via OIDC (Sigstore/Fulcio) — the signature is tied to
+      # this workflow's identity, not a private key sitting in repo secrets
+      # that would need rotating and could leak.
+      - name: Sign the image (keyless)
+        run: cosign sign --yes "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.push.outputs.digest }}"
+
+  deploy:
+    name: Roll out to production
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    environment: production  # requires manual approval if configured as a protected GitHub environment
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure cluster access
+        uses: azure/k8s-set-context@v4
+        with:
+          method: kubeconfig
+          kubeconfig: ${{ secrets.KUBE_CONFIG }}
+
+      - name: Apply manifests
+        run: kubectl apply -k infra/k8s/overlays/production
+
+      # Deploy BY DIGEST, not by the tag — a mutable tag can be repointed
+      # (accidentally or by a compromised registry) after this step runs; a
+      # digest is the content itself and cannot silently change underneath us.
+      - name: Pin the deployed image to this build's digest
+        run: |
+          kubectl set image deployment/santim-web \
+            web="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build-and-push.outputs.digest }}" \
+            -n santim-commerce
+          kubectl set image deployment/santim-worker \
+            worker="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build-and-push.outputs.digest }}" \
+            -n santim-commerce
+
+      # Blocks the job on the rollout actually succeeding — readiness probes
+      # failing here means kubectl exits non-zero and this job fails LOUDLY,
+      # before a human finds out from a customer instead of from CI.
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status deployment/santim-web -n santim-commerce --timeout=180s
+          kubectl rollout status deployment/santim-worker -n santim-commerce --timeout=180s
+
+      - name: Roll back on failure
+        if: failure()
+        run: |
+          kubectl rollout undo deployment/santim-web -n santim-commerce
+          kubectl rollout undo deployment/santim-worker -n santim-commerce

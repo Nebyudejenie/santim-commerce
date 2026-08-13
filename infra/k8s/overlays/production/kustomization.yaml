@@ -1,0 +1,44 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: santim-commerce
+
+resources:
+  - ../../base
+
+# Production sets DEPLOY_ENV=production and SANTIMPAY_ENVIRONMENT=production
+# explicitly, in addition to what the base ConfigMap already carries — see
+# the staging overlay's comment on why `env:` entries, not a ConfigMap patch.
+# With DEPLOY_ENV=production, env.ts's guard means SANTIMPAY_ENVIRONMENT
+# cannot accidentally be testbed here — the deployment fails to become ready
+# rather than serving customers a payment page that never charges anyone.
+patches:
+  - target:
+      kind: Deployment
+      name: santim-web
+    patch: |
+      - op: add
+        path: /spec/template/spec/containers/0/env
+        value:
+          - { name: DEPLOY_ENV, value: production }
+          - { name: SANTIMPAY_ENVIRONMENT, value: production }
+  - target:
+      kind: Deployment
+      name: santim-worker
+    patch: |
+      - op: add
+        path: /spec/template/spec/containers/0/env
+        value:
+          - { name: DEPLOY_ENV, value: production }
+          - { name: SANTIMPAY_ENVIRONMENT, value: production }
+
+# The deploy workflow (.github/workflows/deploy.yml) overrides this with the
+# actual built digest via `kubectl set image` immediately after applying —
+# this tag is only what a plain `kubectl apply -k` would use on its own.
+images:
+  - name: ghcr.io/example-org/santim-commerce
+    newTag: latest
+
+replicas:
+  - name: santim-web
+    count: 3

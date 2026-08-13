@@ -1,0 +1,225 @@
+{
+  "title": "santim-commerce — payments & checkout",
+  "uid": "santim-commerce",
+  "editable": true,
+  "timezone": "browser",
+  "time": { "from": "now-6h", "to": "now" },
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["santim-commerce", "payments"],
+  "panels": [
+    { "type": "row", "title": "Checkout", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }, "id": 100 },
+
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Orders placed",
+      "description": "Rate of orders created (before payment resolves). See checkout-service.ts.",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(rate(santim_orders_placed_total[5m]))",
+          "legendFormat": "orders/s"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Checkout failures by reason",
+      "description": "empty_cart / price_changed / checkout_error / unknown — see checkout-actions.ts.",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum by (reason) (rate(santim_checkout_failures_total[5m]))",
+          "legendFormat": "{{reason}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Checkout sessions by outcome",
+      "description": "created / duplicate_recovered / failed — see startPayment() in payment-service.ts.",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum by (outcome) (rate(santim_checkout_sessions_total[5m]))",
+          "legendFormat": "{{outcome}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
+    },
+
+    { "type": "row", "title": "Payments", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 }, "id": 101 },
+
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "Amount mismatches (last 24h)",
+      "description": "MUST be zero. A non-zero value means a webhook or status-check amount disagreed with what we recorded — see settlePayment()'s assertAmountMatches call. Page someone, do not wait for the next scrape.",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 10 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "sum(increase(santim_payment_amount_mismatch_total[24h]))" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "Unresolved payments right now",
+      "description": "CREATED/PENDING/EXPIRED payment intents — refreshed once per worker tick. Matches the admin dashboard's \"stuck payments\" tile exactly.",
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 10 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "santim_payments_unresolved" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 10 },
+              { "color": "red", "value": 50 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Payment settlements by status",
+      "description": "Every state transition the poller/webhook/reconciler applied — see settlePayment() in payment-service.ts.",
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 10 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum by (status) (rate(santim_payment_settlements_total[5m]))",
+          "legendFormat": "{{status}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
+    },
+
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "SantimPay gateway latency (p50 / p95 / p99)",
+      "description": "Time spent waiting on SantimPay's API itself, not our own request handling — distinguishes \"the gateway is slow\" from \"we are slow.\" See timeGatewayCall() in metrics.ts.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le, operation) (rate(santim_gateway_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "p50 {{operation}}"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, operation) (rate(santim_gateway_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "p95 {{operation}}"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le, operation) (rate(santim_gateway_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "p99 {{operation}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Gateway call outcome",
+      "description": "success vs error, by operation (initiate-payment / fetch-transaction-status).",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum by (operation, outcome) (rate(santim_gateway_request_duration_seconds_count[5m]))",
+          "legendFormat": "{{operation}} — {{outcome}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
+    },
+
+    { "type": "row", "title": "Webhooks & inventory", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 24 }, "id": 102 },
+
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "Webhook requests by result",
+      "description": "accepted / duplicate / unknown_intent / unauthorized / error. A rising 'unauthorized' rate is worth investigating on its own — see route.ts's module comment.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 25 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum by (result) (rate(santim_webhook_requests_total[5m]))",
+          "legendFormat": "{{result}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "Inventory reservations expired",
+      "description": "Stock released because a checkout was abandoned. A sustained spike often means a broken payment channel upstream, not a UX problem.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 25 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "rate(santim_inventory_reservations_expired_total[15m])",
+          "legendFormat": "reservations/s"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
+    },
+
+    { "type": "row", "title": "Process health", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 33 }, "id": 103 },
+
+    {
+      "id": 30,
+      "type": "timeseries",
+      "title": "CPU usage",
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 34 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum by (service) (rate(process_cpu_seconds_total{job=~\"santim-web|santim-worker\"}[5m]))",
+          "legendFormat": "{{service}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percentunit" }, "overrides": [] }
+    },
+    {
+      "id": 31,
+      "type": "timeseries",
+      "title": "Resident memory",
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 34 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "process_resident_memory_bytes{job=~\"santim-web|santim-worker\"}",
+          "legendFormat": "{{service}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] }
+    }
+  ]
+}

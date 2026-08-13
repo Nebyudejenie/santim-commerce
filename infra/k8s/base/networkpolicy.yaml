@@ -1,0 +1,98 @@
+# =============================================================================
+# Default-deny, then explicit allows. The absence of a NetworkPolicy in a
+# namespace means "every pod can talk to every pod" — the flattest, least
+# defensible network in the cluster. This makes the santim-commerce
+# namespace's actual data flow an enforced fact, not a diagram nobody checks.
+# =============================================================================
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: santim-commerce
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+
+---
+# web: receives from the Ingress controller only; talks to Postgres, DNS,
+# and the public internet (SantimPay's API, over HTTPS).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-web
+  namespace: santim-commerce
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: santim-web
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - port: 3000
+    # Prometheus scrapes /api/metrics on the same port — see that route's own
+    # bearer-token gate for why this is still safe to allow at the network layer.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - port: 3000
+  egress:
+    - to: [] # DNS
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: data
+      ports:
+        - port: 5432 # Postgres
+    - to: [] # SantimPay's API — public internet, HTTPS only
+      ports:
+        - port: 443
+
+---
+# worker: no ingress from anywhere except Prometheus scraping its metrics
+# port. It is never a traffic target — see service.yaml's comment on why its
+# Service exists at all.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-worker
+  namespace: santim-commerce
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: santim-worker
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - port: 9091
+  egress:
+    - to: []
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: data
+      ports:
+        - port: 5432
+    - to: []
+      ports:
+        - port: 443

@@ -1,0 +1,38 @@
+# Only the web tier autoscales — traffic-driven. The worker's workload is a
+# trickle of unresolved payments, not proportional to request volume; see
+# deployment-worker.yaml's comment on why it stays at a fixed replica count.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: santim-web
+  namespace: santim-commerce
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: santim-web
+  minReplicas: 3
+  maxReplicas: 12
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 65
+  behavior:
+    scaleDown:
+      # Scale down cautiously — a traffic dip followed by a spike (common
+      # around payment-page redirects, which arrive in bursts) shouldn't
+      # thrash replicas up and down within the same minute.
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 60

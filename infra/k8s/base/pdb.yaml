@@ -1,0 +1,16 @@
+# Caps how many web pods a voluntary disruption (node drain, cluster
+# upgrade, `kubectl cordon`) may take down at once. Without this, an
+# operator draining a node during a deploy could take out enough replicas
+# simultaneously to drop checkout traffic — exactly the scenario the
+# curriculum's Phase 8 "BREAK" step calls out explicitly: drain a node
+# during checkout, expect zero failed payments.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: santim-web
+  namespace: santim-commerce
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: santim-web

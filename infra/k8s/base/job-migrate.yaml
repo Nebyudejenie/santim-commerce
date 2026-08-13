@@ -1,0 +1,54 @@
+# =============================================================================
+# One-shot migration Job — the Kubernetes analogue of docker-compose.yml's
+# `migrate` service, and for the identical reason: exactly ONE process should
+# run `prisma migrate deploy`, never N racing Deployment replicas rolling out
+# simultaneously. A Job is the correct k8s primitive for "run this to
+# completion once," which a Deployment (designed to keep N replicas running
+# forever) is not.
+#
+# Wire this into the deploy pipeline as: apply this Job, `kubectl wait
+# --for=condition=complete`, THEN roll the Deployments — never in parallel
+# with them. See docs/01-santimpay-protocol-spec.md's broader point on
+# expand-contract migrations: this Job assumes migrations are additive/safe
+# to apply before the new code is serving traffic, never a destructive change
+# applied alongside it.
+# =============================================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # Suffixed per-release by the overlay/CI (e.g. `db-migrate-v1-4-2`) so a
+  # re-deploy doesn't collide with an already-completed Job of the same name.
+  name: santim-db-migrate
+  namespace: santim-commerce
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 300
+  ttlSecondsAfterFinished: 3600 # cleans itself up; kubectl logs remain readable for an hour after
+  template:
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: migrate
+          image: ghcr.io/example-org/santim-commerce:latest
+          command: ["pnpm", "--filter", "@santim/web", "db:deploy"]
+          envFrom:
+            - configMapRef:
+                name: santim-web-config
+            - secretRef:
+                name: santim-web-secrets
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 384Mi

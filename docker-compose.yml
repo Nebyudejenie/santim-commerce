@@ -1,0 +1,186 @@
+# =============================================================================
+# Local platform.
+#
+# The point of this file is not "so the app runs". It is so that the app runs
+# THE SAME WAY it runs in production: separate web and worker processes, a real
+# Postgres, real healthchecks, real dependency ordering. Every difference
+# between your laptop and production is a bug you will find at the worst
+# possible moment.
+#
+#   docker compose up -d --build
+#   docker compose logs -f worker
+# =============================================================================
+
+name: santim-commerce
+
+services:
+  # ---------------------------------------------------------------- database
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: santim
+      POSTGRES_PASSWORD: santim
+      POSTGRES_DB: santim_commerce
+      # Faster and safer for a dev container; NEVER use these in production.
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      # `pg_isready` beats "sleep 10" — it answers the real question
+      # ("can this accept connections?") instead of guessing at timing.
+      test: ["CMD-SHELL", "pg_isready -U santim -d santim_commerce"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # ------------------------------------------------------------------- cache
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # -------------------------------------------------------------- migrations
+  # A one-shot job, not a step baked into the app's startup. Running migrations
+  # from N app replicas racing each other is a classic production outage; here
+  # exactly one process migrates, and the app waits for it to finish.
+  migrate:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile
+      target: runner
+    command: ["pnpm", "--filter", "@santim/web", "db:deploy"]
+    environment:
+      DATABASE_URL: postgresql://santim:santim@postgres:5432/santim_commerce?schema=public
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  # --------------------------------------------------------------------- web
+  #
+  # No admin credentials are provisioned here — /admin is gated by real
+  # session-based login (see apps/web/src/app/admin/(dashboard)/layout.tsx),
+  # not a shared env-var password. After the stack is up, create the first
+  # admin account once:
+  #   docker compose exec web sh -c \
+  #     "BOOTSTRAP_ADMIN_EMAIL=you@example.et BOOTSTRAP_ADMIN_PASSWORD='...' pnpm run create-admin"
+  web:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile
+      target: runner
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://santim:santim@postgres:5432/santim_commerce?schema=public
+      REDIS_URL: redis://redis:6379
+      APP_URL: ${APP_URL:?set APP_URL to your public tunnel URL — SantimPay cannot call localhost}
+      DEPLOY_ENV: ${DEPLOY_ENV:-staging}
+      SANTIMPAY_ENVIRONMENT: ${SANTIMPAY_ENVIRONMENT:-testbed}
+      SANTIMPAY_MERCHANT_ID: ${SANTIMPAY_MERCHANT_ID:?required}
+      SANTIMPAY_PRIVATE_KEY_B64: ${SANTIMPAY_PRIVATE_KEY_B64:?base64-encode your PEM key}
+      SANTIMPAY_GATEWAY_TOKEN: ${SANTIMPAY_GATEWAY_TOKEN:-}
+      SESSION_SECRET: ${SESSION_SECRET:?generate with openssl rand -base64 48}
+      METRICS_TOKEN: ${METRICS_TOKEN:?generate with openssl rand -hex 32}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # ------------------------------------------------------------------ worker
+  # Separate container, deliberately. The worker's failure modes, scaling
+  # profile, and deploy cadence differ from the web tier's — and if a poll loop
+  # wedges, it must not take request serving down with it.
+  worker:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile
+      target: runner
+    command: ["pnpm", "--filter", "@santim/web", "worker"]
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://santim:santim@postgres:5432/santim_commerce?schema=public
+      REDIS_URL: redis://redis:6379
+      APP_URL: ${APP_URL:?required}
+      DEPLOY_ENV: ${DEPLOY_ENV:-staging}
+      SANTIMPAY_ENVIRONMENT: ${SANTIMPAY_ENVIRONMENT:-testbed}
+      SANTIMPAY_MERCHANT_ID: ${SANTIMPAY_MERCHANT_ID:?required}
+      SANTIMPAY_PRIVATE_KEY_B64: ${SANTIMPAY_PRIVATE_KEY_B64:?required}
+      SANTIMPAY_GATEWAY_TOKEN: ${SANTIMPAY_GATEWAY_TOKEN:-}
+      SESSION_SECRET: ${SESSION_SECRET:?required}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - "9091:9091" # worker's own /metrics — see startMetricsServer() in worker/index.ts
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    # SIGTERM must reach the Node process for graceful shutdown to work.
+    stop_signal: SIGTERM
+    stop_grace_period: 30s
+
+  # ============================================================ observability
+  # Opt-in: `docker compose --profile observability up -d`. Kept out of the
+  # default `docker compose up` so the everyday inner loop stays fast — most
+  # sessions debugging application code don't need a metrics stack running.
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    restart: unless-stopped
+    profiles: ["observability"]
+    volumes:
+      - ./infra/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/observability/secrets:/etc/prometheus/secrets:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    depends_on:
+      - web
+      - worker
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    restart: unless-stopped
+    profiles: ["observability"]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    volumes:
+      - ./infra/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/observability/grafana/dashboards:/etc/grafana/provisioning/dashboards/json:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3001:3000" # 3000 is taken by the app itself
+    depends_on:
+      - prometheus
+
+volumes:
+  postgres_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:

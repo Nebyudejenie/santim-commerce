@@ -1,0 +1,64 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: santim-commerce
+
+resources:
+  - ../../base
+
+# Staging: fewer replicas, and — critically — DEPLOY_ENV=staging with
+# SANTIMPAY_ENVIRONMENT=testbed. env.ts's boot-time guard only refuses that
+# combination for DEPLOY_ENV=production, so this is a legitimate,
+# intentionally-configured staging deployment, not a misconfiguration.
+#
+# DEPLOY_ENV/SANTIMPAY_ENVIRONMENT are set here via literal `env:` entries
+# rather than by patching the shared ConfigMap: a container's own `env:`
+# list takes precedence over the same key sourced from `envFrom` (documented
+# Kubernetes behavior), which keeps the base ConfigMap identical across
+# environments and lets each overlay override only what it needs to.
+patches:
+  - target:
+      kind: Deployment
+      name: santim-web
+    patch: |
+      - op: replace
+        path: /spec/replicas
+        value: 1
+      - op: add
+        path: /spec/template/spec/containers/0/env
+        value:
+          - { name: DEPLOY_ENV, value: staging }
+          - { name: SANTIMPAY_ENVIRONMENT, value: testbed }
+  - target:
+      kind: Deployment
+      name: santim-worker
+    patch: |
+      - op: add
+        path: /spec/template/spec/containers/0/env
+        value:
+          - { name: DEPLOY_ENV, value: staging }
+          - { name: SANTIMPAY_ENVIRONMENT, value: testbed }
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: santim-web
+    patch: |
+      - op: replace
+        path: /spec/minReplicas
+        value: 1
+      - op: replace
+        path: /spec/maxReplicas
+        value: 3
+  - target:
+      kind: Ingress
+      name: santim-web
+    patch: |
+      - op: replace
+        path: /spec/tls/0/hosts/0
+        value: staging.shop.example.et
+      - op: replace
+        path: /spec/rules/0/host
+        value: staging.shop.example.et
+
+images:
+  - name: ghcr.io/example-org/santim-commerce
+    newTag: staging-latest

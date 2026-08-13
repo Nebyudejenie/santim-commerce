@@ -1,0 +1,39 @@
+# Local Prometheus config — mirrors what the `prometheus.io/scrape` pod
+# annotations in infra/k8s/base describe for a real cluster, so the same
+# metrics and dashboard work identically on a laptop and in production.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # /api/metrics shares the app's public port and is bearer-token gated —
+  # see apps/web/src/app/api/metrics/route.ts's module comment for why.
+  #
+  # Prometheus does NOT expand ${VAR} inside its own config file — that is a
+  # common wrong assumption, and pasting a literal token into this file would
+  # commit it to git. `credentials_file` is the actual supported mechanism:
+  # it reads the token from a file at scrape time, so the token itself lives
+  # only in that file (gitignored; see infra/observability/secrets/README.md)
+  # or, in Kubernetes, in a mounted Secret volume.
+  - job_name: santim-web
+    metrics_path: /api/metrics
+    scheme: http
+    authorization:
+      credentials_file: /etc/prometheus/secrets/metrics-token.txt
+    static_configs:
+      - targets: ["web:3000"]
+        labels:
+          service: santim-web
+
+  # The worker's metrics port is never fronted by anything public — see
+  # worker/index.ts's startMetricsServer() comment — so no auth needed here,
+  # exactly as its Kubernetes NetworkPolicy allows only the monitoring
+  # namespace to reach it and nothing else.
+  - job_name: santim-worker
+    metrics_path: /metrics
+    scheme: http
+    static_configs:
+      - targets: ["worker:9091"]
+        labels:
+          service: santim-worker
