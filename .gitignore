@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+.next/
+dist/
+out/
+*.tsbuildinfo
+
+# Environment / secrets — never commit real credentials
+.env
+.env.local
+.env.*.local
+infra/observability/secrets/*.txt
+
+# Prisma
+apps/web/prisma/*.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+
+# Test / coverage
+coverage/
+
+# SBOM / scan artifacts produced by CI, not source
+sbom.spdx.json
+
+# Generated load-test fixtures (contain live-signed tokens; regenerate, don't commit)
+infra/load-testing/fixtures/*.json
