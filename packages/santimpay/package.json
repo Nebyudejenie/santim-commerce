@@ -1,0 +1,32 @@
+{
+  "name": "@santim/santimpay",
+  "version": "1.0.0",
+  "description": "Hardened, typed SantimPay gateway client: ES256 signing, verified webhooks, idempotency, bounded retries, typed error taxonomy.",
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
+    },
+    "./money": {
+      "types": "./dist/src/money.d.ts",
+      "import": "./dist/src/money.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "pnpm build && node --test dist/test/*.test.js"
+  },
+  "dependencies": {
+    "jsonwebtoken": "^9.0.2"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.7",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.9.2"
+  }
+}
