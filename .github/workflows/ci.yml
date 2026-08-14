@@ -28,7 +28,12 @@ concurrency:
 
 env:
   NODE_VERSION: "22"
-  PNPM_VERSION: "10"
+  # pnpm's version is NOT set here — it's pinned once, in package.json's
+  # "packageManager" field, and pnpm/action-setup@v4 reads that
+  # automatically. Passing an explicit `version:` input here TOO produced
+  # a real, caught-in-production failure: "Multiple versions of pnpm
+  # specified" (the action refuses to guess which one wins), the moment
+  # this repo's first real CI run happened. One source of truth, not two.
 
 jobs:
   # ---------------------------------------------------------------- quality
@@ -39,8 +44,6 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: pnpm/action-setup@v4
-        with:
-          version: ${{ env.PNPM_VERSION }}
 
       - uses: actions/setup-node@v4
         with:
@@ -92,8 +95,6 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: pnpm/action-setup@v4
-        with:
-          version: ${{ env.PNPM_VERSION }}
 
       - uses: actions/setup-node@v4
         with:
