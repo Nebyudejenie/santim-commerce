@@ -53,6 +53,18 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # @prisma/client's postinstall hook normally runs `prisma generate`
+      # automatically — but pnpm blocks dependency lifecycle scripts by
+      # default (a supply-chain-attack mitigation), so on a genuinely clean
+      # checkout it silently doesn't run. This is why `Module "@prisma/client"
+      # has no exported member 'PrismaClient'` showed up on this repo's very
+      # first real CI run despite typechecking clean on every local machine
+      # this was developed on — a local machine that had EVER run
+      # `prisma migrate dev` keeps a generated client around indefinitely,
+      # which hid the gap until a truly fresh environment (this one) hit it.
+      - name: Generate Prisma Client
+        run: pnpm --filter @santim/web db:generate
+
       # The SDK is a workspace dependency; the web app's typecheck needs its
       # compiled `dist/` (see packages/santimpay's own module-resolution
       # comment in package.json) — build it before anything that imports it.
@@ -103,6 +115,12 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # See the quality job's identical step for why this can't be skipped —
+      # `prisma migrate deploy` below applies the schema to Postgres, but
+      # does not reliably regenerate the TypeScript client on its own.
+      - name: Generate Prisma Client
+        run: pnpm --filter @santim/web db:generate
 
       - name: Build @santim/santimpay
         run: pnpm --filter @santim/santimpay build
