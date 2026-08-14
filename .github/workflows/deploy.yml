@@ -29,7 +29,6 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   build-and-push:
@@ -37,10 +36,26 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       digest: ${{ steps.push.outputs.digest }}
+      image: ${{ steps.image.outputs.name }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: docker/setup-buildx-action@v3
+
+      # github.repository preserves this repo's actual owner casing
+      # (Nebyudejenie/santim-commerce — capital N), but GHCR, like every
+      # Docker registry, requires an all-lowercase path — confirmed for
+      # real: `docker tag alpine ghcr.io/Nebyudejenie/santim-commerce:x`
+      # fails outright with "invalid reference format: repository name
+      # ... must be lowercase". GitHub Actions expressions have no
+      # toLower() built in, so this has to be a shell step. Computed once
+      # here and threaded through as a job output — env vars set in one
+      # job don't carry over to the separate `deploy` job below.
+      - name: Compute lowercase image reference
+        id: image
+        run: echo "name=${REPO,,}" >> "$GITHUB_OUTPUT"
+        env:
+          REPO: ${{ env.REGISTRY }}/${{ github.repository }}
 
       - name: Log in to registry
         uses: docker/login-action@v3
@@ -57,7 +72,7 @@ jobs:
           file: infra/docker/Dockerfile
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}
+            ${{ steps.image.outputs.name }}:${{ github.ref_name }}
           cache-from: type=gha
 
       - name: Install cosign
@@ -67,7 +82,7 @@ jobs:
       # this workflow's identity, not a private key sitting in repo secrets
       # that would need rotating and could leak.
       - name: Sign the image (keyless)
-        run: cosign sign --yes "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.push.outputs.digest }}"
+        run: cosign sign --yes "${{ steps.image.outputs.name }}@${{ steps.push.outputs.digest }}"
 
   deploy:
     name: Roll out to production
@@ -92,10 +107,10 @@ jobs:
       - name: Pin the deployed image to this build's digest
         run: |
           kubectl set image deployment/santim-web \
-            web="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build-and-push.outputs.digest }}" \
+            web="${{ needs.build-and-push.outputs.image }}@${{ needs.build-and-push.outputs.digest }}" \
             -n santim-commerce
           kubectl set image deployment/santim-worker \
-            worker="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build-and-push.outputs.digest }}" \
+            worker="${{ needs.build-and-push.outputs.image }}@${{ needs.build-and-push.outputs.digest }}" \
             -n santim-commerce
 
       # Blocks the job on the rollout actually succeeding — readiness probes
