@@ -1,5 +1,6 @@
 # Vulnerabilities in npm's OWN bundled tooling (tar, brace-expansion,
-# sigstore, glob, ip-address, minimatch) — the copies npm vendors internally
+# sigstore, glob, ip-address, minimatch, picomatch) — the copies npm vendors
+# internally
 # for its own package installation, dependency globbing, and provenance
 # verification, not anything reachable via the running application.
 # `next start` (this image's only runtime process, invoked through pnpm —
@@ -52,3 +53,6 @@ CVE-2026-69192
 CVE-2026-26996
 CVE-2026-27903
 CVE-2026-27904
+# picomatch — ReDoS via crafted extglob patterns (fixed 4.0.4/3.0.2/2.3.2).
+# Also confirmed via `pnpm why -r picomatch`: not in this project's tree.
+CVE-2026-33671

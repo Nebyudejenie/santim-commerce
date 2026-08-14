@@ -54,6 +54,26 @@ COPY --from=deps /app/packages/santimpay/node_modules ./packages/santimpay/node_
 COPY --from=deps /app/apps/web/node_modules ./apps/web/node_modules
 COPY . .
 
+# generate-webhook-fixtures.ts embeds the SDK vendor's own published
+# testbed-only example private key (see its own "never production" comment)
+# purely to pre-sign k6 load-test fixtures — real and intentional, but a
+# vulnerability scanner has no way to distinguish it from a leaked
+# production secret, and it has no reason to be inside a shipped image
+# anyway: per infra/load-testing/k6/webhook-burst.js's own usage comment,
+# it's run via `pnpm exec tsx scripts/...` from wherever k6 itself runs, not
+# from inside the deployed container. Unlike create-admin.ts (kubectl exec'd
+# into the running pod per infra/k8s/README.md — must stay) or
+# chaos-checkout-atomicity.ts, nothing documented ever runs this one there.
+#
+# Deleted HERE, in the builder stage, not in the runner stage after COPY
+# --from=builder: Docker layers are additive, so a `RUN rm` in a LATER layer
+# only hides the file from the final merged view — its bytes still sit in
+# an earlier layer's history, which is exactly what a secrets scanner reads
+# (confirmed the hard way: it kept finding the key after the runner-stage rm).
+# Deleting it here means the runner's own COPY --from=builder never receives
+# the file at all, so no runner-stage layer — past or present — contains it.
+RUN rm ./apps/web/scripts/generate-webhook-fixtures.ts
+
 ENV NEXT_TELEMETRY_DISABLED=1
 
 # The SDK is a workspace dependency; it must be compiled before the app.
@@ -88,18 +108,6 @@ COPY --from=builder --chown=node:node /app/package.json ./package.json
 COPY --from=builder --chown=node:node /app/pnpm-workspace.yaml ./pnpm-workspace.yaml
 COPY --from=builder --chown=node:node /app/packages/santimpay ./packages/santimpay
 COPY --from=builder --chown=node:node /app/apps/web ./apps/web
-
-# generate-webhook-fixtures.ts embeds the SDK vendor's own published
-# testbed-only example private key (see its own "never production" comment)
-# purely to pre-sign k6 load-test fixtures — real and intentional, but a
-# vulnerability scanner has no way to distinguish it from a leaked
-# production secret, and it has no reason to be inside a shipped image
-# anyway: per infra/load-testing/k6/webhook-burst.js's own usage comment,
-# it's run via `pnpm exec tsx scripts/...` from wherever k6 itself runs, not
-# from inside the deployed container. Unlike create-admin.ts (kubectl exec'd
-# into the running pod per infra/k8s/README.md — must stay) or
-# chaos-checkout-atomicity.ts, nothing documented ever runs this one there.
-RUN rm ./apps/web/scripts/generate-webhook-fixtures.ts
 
 USER node
 EXPOSE 3000
