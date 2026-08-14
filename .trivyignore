@@ -1,0 +1,54 @@
+# Vulnerabilities in npm's OWN bundled tooling (tar, brace-expansion,
+# sigstore, glob, ip-address, minimatch) — the copies npm vendors internally
+# for its own package installation, dependency globbing, and provenance
+# verification, not anything reachable via the running application.
+# `next start` (this image's only runtime process, invoked through pnpm —
+# see the Dockerfile's CMD) never shells out to npm or any of these; they
+# only run during `npm install -g corepack@...` at BUILD time, to bootstrap
+# a signature-verification-fixed Corepack (see the Dockerfile's own comment
+# on nodejs/corepack#612).
+#
+# Confirmed via `pnpm why -r <pkg>` for each one: none are part of this
+# project's own dependency tree at all — they trace entirely to npm 10.9.8,
+# the newest version bundled with any published node:22-alpine image as of
+# 2026-08-14 (node:22.23.2-alpine, this Dockerfile's pin). Verified directly
+# against npm's own source (github.com/npm/cli @ v10.9.8's
+# package-lock.json): it vendors tar@7.5.11, brace-expansion@2.0.2,
+# sigstore@3.1.0, and older glob/ip-address/minimatch — each short of the
+# fixed version below. This is upstream npm's own dependency bump to make,
+# not something this project's lockfile or overrides can reach.
+#
+# (nanoid, postcss, and sharp were ALSO flagged in this same scan, but those
+# ARE reachable through this project's own tree — next@15.5.23 depends on
+# all three. Those were fixed for real via package.json's
+# pnpm.overrides, not added here.)
+#
+# Re-check this list every time NODE_VERSION is bumped in
+# infra/docker/Dockerfile — a newer bundled npm may already carry the fix,
+# at which point the corresponding line(s) below should be deleted, not
+# carried forward out of habit.
+
+# tar — DoS via crafted gzip bomb (fixed 7.5.19; npm 10.9.8 vendors 7.5.11)
+CVE-2026-59873
+# tar — DoS via malformed tar archive header (fixed 7.5.18)
+CVE-2026-59874
+# brace-expansion — DoS via exponential-time complexity (fixed 2.1.2 on the
+# 2.x line; npm 10.9.8 vendors 2.0.2)
+CVE-2026-13149
+# brace-expansion — DoS via memory exhaustion in expand() (fixed 2.1.3)
+CVE-2026-14257
+# brace-expansion — DoS via unbounded intermediate arrays (fixed 2.1.4)
+CVE-2026-69152
+# sigstore — unauthorized certificates accepted due to ignored
+# certificateOIDs verification option (fixed 4.1.1; npm 10.9.8 vendors 3.1.0)
+CVE-2026-48815
+# glob — command injection via malicious filenames (fixed 11.1.0/10.5.0)
+CVE-2025-64756
+# ip-address — inconsistent IP parsing leading to SSRF (fixed 10.3.1)
+CVE-2026-69192
+# minimatch — DoS via crafted glob patterns / catastrophic backtracking
+# (fixed on every maintained line; npm 10.9.8's vendored copy predates all
+# three)
+CVE-2026-26996
+CVE-2026-27903
+CVE-2026-27904

@@ -172,6 +172,10 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: "1"
           ignore-unfixed: true
+          # See .trivyignore's own comment: every entry there is a specific,
+          # dated, reasoned exception (npm's own bundled tooling, never
+          # reachable from the running app) — not a blanket suppression.
+          trivyignores: .trivyignore
 
       - name: Generate SBOM
         uses: anchore/sbom-action@v0

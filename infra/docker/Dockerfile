@@ -14,7 +14,7 @@
 # first and every single build reinstalls the internet.
 # =============================================================================
 
-ARG NODE_VERSION=22.13-alpine
+ARG NODE_VERSION=22.23.2-alpine
 
 # Corepack ships bundled with Node, but the bundled version tracks whatever
 # was current when that Node image was built — and Corepack < 0.31.0 has a
@@ -88,6 +88,18 @@ COPY --from=builder --chown=node:node /app/package.json ./package.json
 COPY --from=builder --chown=node:node /app/pnpm-workspace.yaml ./pnpm-workspace.yaml
 COPY --from=builder --chown=node:node /app/packages/santimpay ./packages/santimpay
 COPY --from=builder --chown=node:node /app/apps/web ./apps/web
+
+# generate-webhook-fixtures.ts embeds the SDK vendor's own published
+# testbed-only example private key (see its own "never production" comment)
+# purely to pre-sign k6 load-test fixtures — real and intentional, but a
+# vulnerability scanner has no way to distinguish it from a leaked
+# production secret, and it has no reason to be inside a shipped image
+# anyway: per infra/load-testing/k6/webhook-burst.js's own usage comment,
+# it's run via `pnpm exec tsx scripts/...` from wherever k6 itself runs, not
+# from inside the deployed container. Unlike create-admin.ts (kubectl exec'd
+# into the running pod per infra/k8s/README.md — must stay) or
+# chaos-checkout-atomicity.ts, nothing documented ever runs this one there.
+RUN rm ./apps/web/scripts/generate-webhook-fixtures.ts
 
 USER node
 EXPOSE 3000
