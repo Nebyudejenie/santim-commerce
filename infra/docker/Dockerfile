@@ -16,9 +16,20 @@
 
 ARG NODE_VERSION=22.13-alpine
 
+# Corepack ships bundled with Node, but the bundled version tracks whatever
+# was current when that Node image was built — and Corepack < 0.31.0 has a
+# real bug (nodejs/corepack#612) verifying packages against npm's rotated
+# registry signing key, failing every `corepack enable`-triggered pnpm
+# fetch with "Cannot find matching keyid" the instant npm re-signs a
+# package with its new key. Pin Corepack explicitly, the same way
+# package.json's "packageManager" field pins pnpm explicitly, instead of
+# trusting whatever a given Node base image happened to bundle.
+ARG COREPACK_VERSION=0.35.0
+
 # ------------------------------------------------------------------ 1. deps
 FROM node:${NODE_VERSION} AS deps
-RUN corepack enable
+ARG COREPACK_VERSION
+RUN npm install -g corepack@${COREPACK_VERSION} && corepack enable
 WORKDIR /app
 
 # Only the files that determine the dependency graph. Nothing else.
@@ -34,7 +45,8 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
 
 # ---------------------------------------------------------------- 2. builder
 FROM node:${NODE_VERSION} AS builder
-RUN corepack enable
+ARG COREPACK_VERSION
+RUN npm install -g corepack@${COREPACK_VERSION} && corepack enable
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
@@ -58,7 +70,8 @@ RUN DATABASE_URL="postgresql://build:build@localhost:5432/build" \
 
 # ----------------------------------------------------------------- 3. runner
 FROM node:${NODE_VERSION} AS runner
-RUN corepack enable
+ARG COREPACK_VERSION
+RUN npm install -g corepack@${COREPACK_VERSION} && corepack enable
 WORKDIR /app
 
 ENV NODE_ENV=production \
