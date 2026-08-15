@@ -16,8 +16,14 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  # Suffixed per-release by the overlay/CI (e.g. `db-migrate-v1-4-2`) so a
-  # re-deploy doesn't collide with an already-completed Job of the same name.
+  # A fixed name, not suffixed per-release — a Job's pod template (including
+  # its image) is IMMUTABLE once created, so a re-deploy can't just re-apply
+  # this manifest onto the previous run's Job object. deploy.yml deletes any
+  # existing santim-db-migrate Job immediately before applying, every
+  # deploy, so this name always refers to a fresh object for the release
+  # currently rolling out. ttlSecondsAfterFinished below already treats each
+  # run as short-lived, so there was nothing to gain from a longer-lived
+  # per-release name beyond what that delete-then-create already gives you.
   name: santim-db-migrate
   namespace: santim-commerce
 spec:

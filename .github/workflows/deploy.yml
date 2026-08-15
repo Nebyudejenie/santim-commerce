@@ -98,9 +98,37 @@ jobs:
           method: kubeconfig
           kubeconfig: ${{ secrets.KUBE_CONFIG }}
 
+      # A Job's pod template — including its image — is immutable once
+      # created, unlike a Deployment's, so a plain re-apply can't update a
+      # previous run's Job the way `kubectl set image` updates the
+      # Deployments below. Delete any prior run first (job-migrate.yaml's
+      # own comment explains why a fixed name plus delete-before-apply was
+      # chosen over a per-release suffix), and pipe the rendered manifests
+      # through this run's actual digest before they're ever applied — the
+      # committed `ghcr.io/example-org/santim-commerce:latest` placeholder
+      # is only ever a fallback for a bare `kubectl apply -k`, never what
+      # should actually run migrations.
       - name: Apply manifests
-        run: kubectl apply -k infra/k8s/overlays/production
+        run: |
+          kubectl delete job/santim-db-migrate -n santim-commerce --ignore-not-found
+          kubectl kustomize infra/k8s/overlays/production \
+            | sed "s|ghcr.io/example-org/santim-commerce:latest|${{ needs.build-and-push.outputs.image }}@${{ needs.build-and-push.outputs.digest }}|g" \
+            | kubectl apply -f -
 
+      # infra/k8s/README.md documents this wait as part of the deploy
+      # sequence — this step is what actually makes that true. Without it,
+      # nothing stopped the Deployments below from rolling out new code
+      # before migrations had finished applying against the database it
+      # expects.
+      - name: Wait for migrations
+        run: kubectl wait --for=condition=complete job/santim-db-migrate -n santim-commerce --timeout=300s
+
+      # The Deployments already carry the correct digest from the apply
+      # above (the same sed rewrite touched them too) — this is now a
+      # no-op confirmation more than a real change, and kept anyway: it's
+      # the one step here that can't silently do nothing if a future change
+      # ever decouples the Job and Deployment image sources again.
+      #
       # Deploy BY DIGEST, not by the tag — a mutable tag can be repointed
       # (accidentally or by a compromised registry) after this step runs; a
       # digest is the content itself and cannot silently change underneath us.
