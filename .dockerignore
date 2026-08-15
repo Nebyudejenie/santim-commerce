@@ -1,0 +1,19 @@
+# Neither the Dockerfile's `deps` stage (installs its own node_modules via
+# `pnpm install`) nor its `builder` stage (generates its own .next via
+# `next build`) needs these from the host — the host's copies were pure
+# build-context waste on every single build (~753MB, mostly node_modules and
+# .next; see curriculum/05-containers-and-the-local-platform.md §5 for the
+# measured before/after).
+node_modules
+**/node_modules
+.next
+**/.next
+
+.git
+
+*.log
+
+# Never let a careless COPY ship a real local secret into an image layer —
+# see curriculum/05-containers-and-the-local-platform.md §6.
+.env
+.env.*
