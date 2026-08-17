@@ -1,0 +1,61 @@
+# =============================================================================
+# Curriculum Phase 6 §6 / Lab 6.3 — closing a real, demonstrated gap, not a
+# hypothetical one. Of the real CI bugs this project's own history documents
+# (curriculum Phase 6 §5), the trivy-action tag, the stale Corepack, and the
+# base-image OS CVEs were each some version of "a pin quietly went stale."
+# Every ecosystem below covers a pin that has ALREADY caused a real failure
+# once: npm/pnpm (the Prisma-generate gap traced to a pnpm behavior change),
+# github-actions (the exact trivy-action tag bug), and docker (the base
+# image OS CVEs Phase 6 §5.5 had to triage by hand).
+#
+# Weekly, not daily: this project's own real pace of dependency-related
+# issues was roughly one every few weeks during active development, not
+# multiple per day — daily would mostly produce noise nobody reviews, which
+# trains people to stop reading Dependabot PRs at all, the same "alert
+# fatigue" reasoning curriculum Phase 9 §5 applies to paging.
+# =============================================================================
+
+version: 2
+updates:
+  # The pnpm workspace root — package.json, pnpm-lock.yaml, and
+  # pnpm-workspace.yaml all live here; Dependabot detects the pnpm lockfile
+  # and updates across all three workspace packages (apps/web,
+  # packages/santimpay) from this single entry.
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      # Prisma's client, CLI, and engines version-lock to each other — see
+      # apps/web/package.json's own dependency block. Bumping one without
+      # the others is how you reproduce a real, known class of Prisma
+      # breakage; grouping means Dependabot proposes them together or not
+      # at all, never half-updated.
+      prisma:
+        patterns:
+          - "prisma"
+          - "@prisma/*"
+
+  # ci.yml and deploy.yml's own action version pins — every one of them
+  # already independently verified against real, current tags once (Phase 6
+  # §5.3's trivy-action fix, Phase 6 §4's docker/login-action and
+  # sigstore/cosign-installer checks). This is what keeps them from quietly
+  # drifting out of date the same way again.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+
+  # infra/docker/Dockerfile's ARG NODE_VERSION / ARG COREPACK_VERSION —
+  # Dependabot's docker ecosystem resolves ARG-declared versions used in a
+  # FROM line, not just a literal `FROM node:22.23.2-alpine`. This is
+  # specifically what would have surfaced the OS-level CVEs (curriculum
+  # Phase 6 §5.5) as a proposed PR instead of something CI's Trivy scan had
+  # to catch after the fact.
+  - package-ecosystem: "docker"
+    directory: "/infra/docker"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
