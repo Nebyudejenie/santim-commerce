@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "pnpm run test:unit",
     "test:unit": "node --test --experimental-strip-types $(find src -name '*.test.ts' ! -name '*.integration.test.ts')",
-    "test:integration": "node --test --experimental-strip-types $(find src -name '*.integration.test.ts')",
+    "test:integration": "tsx --test $(find src -name '*.integration.test.ts')",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",

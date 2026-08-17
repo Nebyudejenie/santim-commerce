@@ -336,10 +336,11 @@ model Order {
   billingAddress  Json?
   customerNote    String?
 
-  lines        OrderLine[]
-  payments     PaymentIntent[]
-  events       OrderEvent[]
-  reservations InventoryReservation[]
+  lines          OrderLine[]
+  payments       PaymentIntent[]
+  events         OrderEvent[]
+  reservations   InventoryReservation[]
+  shippingLabels ShippingLabel[]
 
   placedAt    DateTime @default(now())
   paidAt      DateTime?
@@ -511,4 +512,48 @@ model OutboxMessage {
 
   @@index([publishedAt, availableAt])
   @@map("outbox_messages")
+}
+
+/// At most one shipping label per order — `orderId` is `@unique`, not just
+/// indexed, and THAT constraint (not application logic) is what makes
+/// concurrent label-generation requests for the same order safe. Same
+/// pattern as WebhookEvent's unique constraint and Inventory's atomic
+/// UPDATE: let the database reject the second writer, never a
+/// check-then-write race in application code.
+///
+/// Curriculum Phase 12 §2 / Lab 12.2: rate quotes (carrier-client.ts's
+/// getRateQuote) are naturally idempotent — a pure calculation, safe to
+/// call any number of times. Label generation is a real, billable side
+/// effect and needs this row to exist BEFORE the carrier is ever called,
+/// the identical ordering discipline `startPayment()` uses for
+/// `PaymentIntent.merchantTxnId`.
+model ShippingLabel {
+  id      String @id @default(cuid())
+  orderId String @unique
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  /// OUR id, sent to the carrier as ITS idempotency key. Generated once,
+  /// persisted before the outbound call — see label-service.ts.
+  idempotencyKey String @unique
+
+  status ShippingLabelStatus @default(PENDING)
+
+  /// Set once the carrier responds.
+  carrierLabelId String?
+  trackingNumber String?
+  labelUrl       String? @db.Text
+
+  failureMessage String?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  completedAt DateTime?
+
+  @@map("shipping_labels")
+}
+
+enum ShippingLabelStatus {
+  PENDING   // key persisted, carrier not yet called (or in flight)
+  GENERATED // carrier returned a real label
+  FAILED
 }

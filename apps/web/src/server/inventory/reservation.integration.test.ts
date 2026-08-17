@@ -7,11 +7,24 @@
  * the entire mechanism the code relies on (see reservation.ts's module
  * comment). Only hitting a real database is evidence.
  *
- * Run:
+ * Run (or just `pnpm test:integration`, which runs every *.integration.test.ts
+ * this same way):
  *   docker compose up -d postgres
  *   DATABASE_URL=postgresql://santim:santim@localhost:5432/santim_commerce pnpm exec prisma migrate deploy
  *   DATABASE_URL=postgresql://santim:santim@localhost:5432/santim_commerce \
- *     node --test --experimental-strip-types src/server/inventory/reservation.integration.test.ts
+ *     pnpm exec tsx --test src/server/inventory/reservation.integration.test.ts
+ *
+ * tsx, not `node --experimental-strip-types`: this file only survives under
+ * plain Node because its own cross-file import (`../db.js`) is `import type`
+ * — fully erased by type-stripping, never actually resolved at runtime.
+ * label-service.integration.test.ts needs REAL cross-file value imports
+ * (`prisma`, `logger`, `generateLabel`), which type-stripping cannot resolve
+ * (`.js` pointing at a `.ts` file is a TypeScript "Bundler"-moduleResolution
+ * convention tsx understands and plain Node does not — see next.config.ts's
+ * own comment on the identical gap for webpack). `test:integration` runs
+ * both files with the same command, so it has to be the one that works for
+ * both — tsx is a strict superset here, verified by re-running this file's
+ * own five tests under it before switching the shared script over.
  */
 
 import test from "node:test";
