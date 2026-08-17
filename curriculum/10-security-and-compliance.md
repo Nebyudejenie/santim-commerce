@@ -281,8 +281,9 @@ never decided.
 **Retention and right to erasure — a real, current, and not-yet-reasoned-about gap.** Nothing in
 this schema expresses a retention policy for `OrderEvent` (Phase 3 §8's permanent audit trail),
 `WebhookEvent` (Phase 2's forensic record, explicitly never deleted per its own schema comment), or
-`Session` rows beyond expiry-driven cleanup (Phase 2 §8's `purgeExpiredSessions()`, which reclaims
-*expired* sessions, not a customer's *data* on request). A real "delete my account and everything
+`Session` rows beyond expiry-driven cleanup (`session-store.ts`'s `purgeExpiredSessions()`, called
+from the worker's own reconcile loop — Phase 2 §6 — which reclaims *expired* sessions, not a
+customer's *data* on request). A real "delete my account and everything
 tied to it" request — increasingly a legal requirement, not just a nice-to-have, in many
 jurisdictions' data protection law — would today mean manually reasoning through every table with
 a `userId` or `email` foreign key and deciding, table by table, whether to hard-delete, anonymize,
