@@ -151,7 +151,7 @@ jobs:
       # every PR rebuilds node_modules from scratch — see the Dockerfile's own
       # comment on why layer order/caching matters at all.
       - name: Build image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: infra/docker/Dockerfile
