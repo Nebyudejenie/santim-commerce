@@ -40,6 +40,12 @@ async function makeApprovedSellerWithProduct(suffix: string) {
 test("checkout refuses an item whose seller was suspended after it was added to the cart", async () => {
   const suffix = Math.random().toString(36).slice(2, 8);
   const { sellerId, variantId } = await makeApprovedSellerWithProduct(suffix);
+  // A per-test-unique email, not the shared literal "buyer@example.et" a
+  // dozen other integration test files also use — this file's own
+  // assertions below need to be scoped to THIS test's attempt, not
+  // whatever else happens to be running concurrently (node --test runs
+  // integration test FILES in parallel by default).
+  const buyerEmail = `buyer-${suffix}@example.et`;
 
   const cartToken = generateCartToken();
   await getOrCreateCart(cartToken, null);
@@ -53,7 +59,7 @@ test("checkout refuses an item whose seller was suspended after it was added to 
     () =>
       placeOrder({
         cartToken,
-        email: "buyer@example.et",
+        email: buyerEmail,
         phone: "0912345678",
         shippingZone: "ADDIS_ABABA",
       }),
@@ -61,13 +67,14 @@ test("checkout refuses an item whose seller was suspended after it was added to 
   );
 
   // No order must have been created from the rejected attempt.
-  const orders = await prisma.order.findMany({ where: { email: "buyer@example.et" } });
+  const orders = await prisma.order.findMany({ where: { email: buyerEmail } });
   assert.equal(orders.length, 0, "a rejected checkout must not leave a partial order behind");
 });
 
 test("checkout rejects a coupon code from a guest — the per-user redemption limit has nothing to key on without a userId", async () => {
   const suffix = Math.random().toString(36).slice(2, 8);
   const { variantId } = await makeApprovedSellerWithProduct(`coupon-guest-${suffix}`);
+  const buyerEmail = `buyer-${suffix}@example.et`;
 
   const cartToken = generateCartToken();
   await getOrCreateCart(cartToken, null);
@@ -77,7 +84,7 @@ test("checkout rejects a coupon code from a guest — the per-user redemption li
     () =>
       placeOrder({
         cartToken,
-        email: "buyer@example.et",
+        email: buyerEmail,
         phone: "0912345678",
         shippingZone: "ADDIS_ABABA",
         userId: null,
@@ -89,7 +96,7 @@ test("checkout rejects a coupon code from a guest — the per-user redemption li
   // Rejected before any DB work starts — real proof, not an assumption:
   // no order, and the coupon-service.ts code path (which would need a real
   // userId) was never reached.
-  const orders = await prisma.order.findMany({ where: { email: "buyer@example.et" } });
+  const orders = await prisma.order.findMany({ where: { email: buyerEmail } });
   assert.equal(orders.length, 0);
 });
 
@@ -105,9 +112,12 @@ test("checkout rejects a coupon code from a guest — the per-user redemption li
 // those concerns come into play.
 
 test.after(async () => {
-  await prisma.orderLine.deleteMany({ where: { order: { email: { startsWith: "buyer" } } } });
-  await prisma.paymentIntent.deleteMany({ where: { order: { email: { startsWith: "buyer" } } } });
-  await prisma.order.deleteMany({ where: { email: { startsWith: "buyer" } } });
+  // Scoped to this file's own email convention (buyer-<suffix>@...), not
+  // the bare "buyer" prefix other integration test files also use for
+  // their own, unrelated orders — see this file's own comment above on why.
+  await prisma.orderLine.deleteMany({ where: { order: { email: { startsWith: "buyer-" } } } });
+  await prisma.paymentIntent.deleteMany({ where: { order: { email: { startsWith: "buyer-" } } } });
+  await prisma.order.deleteMany({ where: { email: { startsWith: "buyer-" } } });
   await prisma.cartLine.deleteMany({ where: { variant: { product: { slug: { startsWith: "checkout-test-" } } } } });
   await prisma.cart.deleteMany({ where: { lines: { none: {} } } });
   await prisma.variant.deleteMany({ where: { product: { slug: { startsWith: "checkout-test-" } } } });

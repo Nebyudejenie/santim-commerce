@@ -422,12 +422,44 @@ rather than inventing busywork.
       not just that the underlying state changed). Verified end-to-end over
       real HTTP: unread badge count and notification content both match
       real seeded data exactly; a guest sees no bell at all.
-- [ ] **Admin business-metrics dashboard** — confirmed the admin home page
-      is real but minimal: 5 ops-health tiles (orders/revenue today, stuck
-      payments, expiring reservations) sourced from `getDashboardStats()`,
-      explicitly framed in its own comment as mirroring what the worker
-      checks — not GMV trends, seller counts, commission totals, or
-      return/refund rates. Not yet built.
+- [x] **Admin business-metrics dashboard** — new `getBusinessMetrics()`
+      (admin-queries.ts) alongside the existing `getDashboardStats()`, both
+      shown on the same page now under separate headings ("Business, last
+      30 days" / "Operational health") since they answer different
+      questions: how the marketplace is actually performing vs. is
+      anything broken right now. Real GMV (settled orders paid in the
+      window), real commission revenue (from actual `SellerLedgerEntry`
+      COMMISSION rows, correctly sign-flipped for display — they're stored
+      negative), active/pending seller counts, platform-wide return rate,
+      and a real top-5-sellers-by-revenue table via `orderLine.groupBy`.
+      5 new integration tests (admin-queries.ts had zero coverage before
+      this) verify each figure against real seeded orders/ledger entries —
+      GMV specifically checked for both inclusion (recent orders) and
+      exclusion (an order paid 60 days ago, given a deliberately huge
+      value so any accidental inclusion is unmissable against ordinary
+      concurrent-test noise).
+
+      A real, separate bug surfaced and was fixed while adding this file:
+      `checkout-service.integration.test.ts`'s two existing tests asserted
+      `orders.length === 0` filtered by the literal, UNSUFFIXED email
+      `"buyer@example.et"` — a string over a dozen other integration test
+      files also use verbatim for their own, unrelated real orders. Because
+      `node --test` runs integration test FILES concurrently by default,
+      those assertions (and that file's own cleanup, which deleted by the
+      same bare prefix) were exposed to real cross-file interference —
+      confirmed by reproducing 3 real failures in a full-suite run, then
+      confirming 3 consecutive clean 104/104 runs after scoping both the
+      assertions and the cleanup to a per-test-unique `buyer-<suffix>@...`
+      email instead. This also retroactively explains a single flaky-test
+      incident from earlier in this session that had been attributed to
+      "environmental noise" without a confirmed root cause — same bug,
+      just rarer before this phase added enough concurrently-running files
+      sharing that literal string to make it show up reliably.
+
+      Verified end-to-end over real HTTP: GMV, commission revenue, and the
+      top-seller entry all match the real seeded figures exactly (1,234.56
+      ETB / 123.46 ETB, computed from 123,456 santim at a real 10%
+      commission rate).
 
 ### Working discipline for this mandate (carried over from what already
 proved out this session — do not relax these just because the scope grew)

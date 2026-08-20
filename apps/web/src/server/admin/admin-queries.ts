@@ -110,4 +110,90 @@ export async function getDashboardStats(): Promise<DashboardStats> {
   };
 }
 
+const SETTLED_ORDER_STATUSES = ["PAID", "REFUNDED", "PARTIALLY_REFUNDED"] as const;
+const BUSINESS_METRICS_WINDOW_DAYS = 30;
+
+export interface TopSeller {
+  readonly sellerId: string;
+  readonly storeName: string;
+  readonly revenueSantim: number;
+}
+
+export interface BusinessMetrics {
+  readonly windowDays: number;
+  /** Gross Merchandise Value — total order value across settled orders in the window. */
+  readonly gmvSantim: number;
+  /** The marketplace's own cut — always >= 0, even though the underlying ledger entries are stored negative. */
+  readonly commissionRevenueSantim: number;
+  readonly activeSellerCount: number;
+  readonly pendingSellerApplications: number;
+  /** Fraction of fulfilled-or-returned order lines created in the window that were RETURNED. Null with no data. */
+  readonly returnRate: number | null;
+  readonly topSellers: readonly TopSeller[];
+}
+
+/**
+ * Real marketplace business metrics — GMV, commission revenue, seller
+ * counts, return rate, top sellers — distinct from getDashboardStats()'s
+ * ops-health tiles (stuck payments, expiring reservations) above. Both
+ * live on the same admin dashboard page but answer different questions:
+ * "is anything broken right now" vs "how is the marketplace actually
+ * performing".
+ */
+export async function getBusinessMetrics(): Promise<BusinessMetrics> {
+  const windowStart = new Date(Date.now() - BUSINESS_METRICS_WINDOW_DAYS * 24 * 60 * 60_000);
+
+  const [gmv, commission, activeSellerCount, pendingSellerApplications, fulfilledOrReturned, returned, topSellerRows] =
+    await Promise.all([
+      prisma.order.aggregate({
+        where: { status: { in: [...SETTLED_ORDER_STATUSES] }, paidAt: { gte: windowStart } },
+        _sum: { totalSantim: true },
+      }),
+      prisma.sellerLedgerEntry.aggregate({
+        where: { type: "COMMISSION", createdAt: { gte: windowStart } },
+        _sum: { amountSantim: true },
+      }),
+      prisma.seller.count({ where: { status: "APPROVED" } }),
+      prisma.seller.count({ where: { status: "PENDING" } }),
+      prisma.orderLine.count({
+        where: {
+          createdAt: { gte: windowStart },
+          fulfilmentStatus: { in: ["FULFILLED", "RETURNED"] },
+        },
+      }),
+      prisma.orderLine.count({
+        where: { createdAt: { gte: windowStart }, fulfilmentStatus: "RETURNED" },
+      }),
+      prisma.orderLine.groupBy({
+        by: ["sellerId"],
+        where: {
+          order: { status: { in: [...SETTLED_ORDER_STATUSES] }, paidAt: { gte: windowStart } },
+        },
+        _sum: { lineTotalSantim: true },
+        orderBy: { _sum: { lineTotalSantim: "desc" } },
+        take: 5,
+      }),
+    ]);
+
+  const sellers = await prisma.seller.findMany({
+    where: { id: { in: topSellerRows.map((r) => r.sellerId) } },
+    select: { id: true, storeName: true },
+  });
+  const storeNameById = new Map(sellers.map((s) => [s.id, s.storeName]));
+
+  return {
+    windowDays: BUSINESS_METRICS_WINDOW_DAYS,
+    gmvSantim: gmv._sum.totalSantim ?? 0,
+    commissionRevenueSantim: -(commission._sum.amountSantim ?? 0),
+    activeSellerCount,
+    pendingSellerApplications,
+    returnRate: fulfilledOrReturned > 0 ? returned / fulfilledOrReturned : null,
+    topSellers: topSellerRows.map((r) => ({
+      sellerId: r.sellerId,
+      storeName: storeNameById.get(r.sellerId) ?? "Unknown seller",
+      revenueSantim: r._sum.lineTotalSantim ?? 0,
+    })),
+  };
+}
+
 export type { OrderStatus, PaymentStatus };

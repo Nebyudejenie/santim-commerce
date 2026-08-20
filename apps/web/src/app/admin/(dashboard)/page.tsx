@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getDashboardStats } from "@/server/admin/admin-queries";
+import { getBusinessMetrics, getDashboardStats } from "@/server/admin/admin-queries";
 import { format } from "@santim/santimpay/money";
 import type { Santim } from "@santim/santimpay/money";
 
@@ -12,7 +12,7 @@ import type { Santim } from "@santim/santimpay/money";
 export const dynamic = "force-dynamic";
 
 export default async function AdminDashboard() {
-  const stats = await getDashboardStats();
+  const [stats, business] = await Promise.all([getDashboardStats(), getBusinessMetrics()]);
 
   return (
     <div>
@@ -20,6 +20,52 @@ export default async function AdminDashboard() {
         <h1>Dashboard</h1>
       </div>
 
+      <h2 className="admin-section-title">Business, last {business.windowDays} days</h2>
+      <div className="stat-grid">
+        <div className="stat-tile">
+          <p className="stat-tile__label">GMV</p>
+          <p className="stat-tile__value">{format(business.gmvSantim as Santim)}</p>
+        </div>
+        <div className="stat-tile">
+          <p className="stat-tile__label">Commission revenue</p>
+          <p className="stat-tile__value">{format(business.commissionRevenueSantim as Santim)}</p>
+        </div>
+        <div className="stat-tile">
+          <p className="stat-tile__label">Active sellers</p>
+          <p className="stat-tile__value">{business.activeSellerCount}</p>
+        </div>
+        <div className="stat-tile stat-tile--warn" data-alert={business.pendingSellerApplications > 0}>
+          <p className="stat-tile__label">Pending applications</p>
+          <p className="stat-tile__value">{business.pendingSellerApplications}</p>
+        </div>
+        <div className="stat-tile">
+          <p className="stat-tile__label">Return rate</p>
+          <p className="stat-tile__value">
+            {business.returnRate != null ? `${Math.round(business.returnRate * 100)}%` : "—"}
+          </p>
+        </div>
+      </div>
+
+      {business.topSellers.length > 0 && (
+        <div className="detail-card" style={{ marginBottom: "var(--space-6)" }}>
+          <h3>Top sellers by revenue</h3>
+          <table className="admin-table">
+            <thead>
+              <tr><th>Store</th><th>Revenue</th></tr>
+            </thead>
+            <tbody>
+              {business.topSellers.map((s) => (
+                <tr key={s.sellerId}>
+                  <td>{s.storeName}</td>
+                  <td>{format(s.revenueSantim as Santim)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <h2 className="admin-section-title">Operational health</h2>
       <div className="stat-grid">
         <div className="stat-tile">
           <p className="stat-tile__label">Orders today</p>

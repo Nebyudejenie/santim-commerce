@@ -143,6 +143,14 @@
 .admin-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: var(--space-6); }
 .admin-header h1 { font-size: var(--text-2xl); }
 
+.admin-section-title {
+  font-size: var(--text-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-faint);
+  margin-bottom: var(--space-4);
+}
+
 .stat-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
