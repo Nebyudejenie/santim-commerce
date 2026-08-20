@@ -74,6 +74,9 @@ jobs:
       - name: Typecheck all packages
         run: pnpm -r typecheck
 
+      - name: Lint all packages
+        run: pnpm -r lint
+
       - name: "Unit tests: @santim/santimpay (signing, webhook verification, retries, error taxonomy)"
         run: pnpm --filter @santim/santimpay test
 

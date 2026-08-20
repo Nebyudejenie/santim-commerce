@@ -52,7 +52,7 @@ export default async function AdminDashboard() {
 
       <p className="empty-note">
         This mirrors what the background worker checks on every tick (see src/worker/index.ts) —
-        payments the poller hasn't resolved and reservations about to expire.
+        payments the poller hasn&apos;t resolved and reservations about to expire.
       </p>
     </div>
   );

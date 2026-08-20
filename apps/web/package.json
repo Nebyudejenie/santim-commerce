@@ -8,6 +8,7 @@
     "build": "prisma generate && next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
     "test": "pnpm run test:unit",
     "test:unit": "node --test --experimental-strip-types $(find src -name '*.test.ts' ! -name '*.integration.test.ts')",
     "test:integration": "tsx --test $(find src -name '*.integration.test.ts')",
@@ -34,9 +35,12 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@eslint/eslintrc": "^3.3.6",
     "@types/node": "^26.2.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "15.5.23",
     "prisma": "^6.2.1",
     "typescript": "^5.9.2"
   }

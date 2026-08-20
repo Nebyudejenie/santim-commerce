@@ -15,7 +15,7 @@ export default async function CartPage() {
       <div className="container">
         <div className="empty-state">
           <h2>Your bag is empty</h2>
-          <p style={{ marginBottom: "var(--space-6)" }}>Find something you'll wear on repeat.</p>
+          <p style={{ marginBottom: "var(--space-6)" }}>Find something you&apos;ll wear on repeat.</p>
           <Link href="/shop" className="btn btn--primary">Continue shopping</Link>
         </div>
       </div>
@@ -36,7 +36,7 @@ export default async function CartPage() {
         )}
         {cart.hasStockIssues && (
           <p className="alert alert--error">
-            Some items exceed what's currently in stock. Reduce quantity to check out.
+            Some items exceed what&apos;s currently in stock. Reduce quantity to check out.
           </p>
         )}
 

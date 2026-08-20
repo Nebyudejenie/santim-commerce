@@ -103,7 +103,7 @@ export function CheckoutForm({ subtotalSantim }: { subtotalSantim: number }) {
             checked={acceptedPriceChanges}
             onChange={(e) => setAcceptedPriceChanges(e.target.checked)}
           />
-          I've reviewed the updated prices and want to continue
+          I&apos;ve reviewed the updated prices and want to continue
         </label>
       )}
 

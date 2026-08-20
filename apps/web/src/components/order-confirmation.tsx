@@ -66,8 +66,6 @@ export function OrderConfirmation({ initial }: { initial: StatusResponse }) {
       cancelled = true;
       clearTimeout(handle);
     };
-    // Re-run whenever status changes back to pending (defensive; normally fires once).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data.status, data.orderNumber]);
 
   if (data.status === "PAID") {

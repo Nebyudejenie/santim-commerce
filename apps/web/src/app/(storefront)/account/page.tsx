@@ -29,7 +29,7 @@ export default async function AccountPage() {
       {orders.length === 0 ? (
         <div className="empty-state">
           <h2>No orders yet</h2>
-          <p style={{ marginBottom: "var(--space-6)" }}>When you place an order, it'll show up here.</p>
+          <p style={{ marginBottom: "var(--space-6)" }}>When you place an order, it&apos;ll show up here.</p>
           <Link href="/shop" className="btn btn--primary">Start shopping</Link>
         </div>
       ) : (

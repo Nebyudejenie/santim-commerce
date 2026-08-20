@@ -15,10 +15,13 @@
       "import": "./dist/src/money.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
     "test": "pnpm build && node --test dist/test/*.test.js"
   },
   "dependencies": {
@@ -27,6 +30,8 @@
   "devDependencies": {
     "@types/jsonwebtoken": "^9.0.7",
     "@types/node": "^26.2.0",
-    "typescript": "^5.9.2"
+    "eslint": "^9.39.5",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.67.0"
   }
 }
