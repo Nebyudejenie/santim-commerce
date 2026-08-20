@@ -11,17 +11,36 @@ import { Money } from "./money";
 const INITIAL_STATE: CheckoutFormState = { ok: false };
 const INITIAL_COUPON_STATE: CouponPreviewState = { ok: false };
 
+export interface SavedAddressOption {
+  readonly id: string;
+  readonly fullName: string;
+  readonly phone: string;
+  readonly city: string;
+  readonly subCity: string | null;
+  readonly woreda: string | null;
+  readonly streetLine: string | null;
+  readonly landmark: string | null;
+}
+
 export function CheckoutForm({
   subtotalSantim,
   isSignedIn,
+  savedAddresses = [],
 }: {
   subtotalSantim: number;
   isSignedIn: boolean;
+  savedAddresses?: SavedAddressOption[];
 }) {
   const [state, formAction, pending] = useActionState(submitCheckout, INITIAL_STATE);
   const [couponState, couponAction, couponPending] = useActionState(previewCouponAction, INITIAL_COUPON_STATE);
   const [acceptedPriceChanges, setAcceptedPriceChanges] = useState(false);
   const [zone, setZone] = useState<ShippingZone>("ADDIS_ABABA");
+  // "new" means the manual-entry fields below; any other value is a saved
+  // address's id. Defaults to the most recent saved address when one
+  // exists — the common case is reusing where you last shipped to.
+  const [selectedAddressId, setSelectedAddressId] = useState<string>(savedAddresses[0]?.id ?? "new");
+
+  const selectedAddress = savedAddresses.find((a) => a.id === selectedAddressId);
 
   const needsPriceConfirmation = Boolean(state.priceChangedVariantIds?.length) && !acceptedPriceChanges;
 
@@ -95,27 +114,69 @@ export function CheckoutForm({
         <input id="email" name="email" type="email" autoComplete="email" required placeholder="you@example.com" />
       </div>
 
-      <div className="form-row form-row--2">
+      {isSignedIn && savedAddresses.length > 0 && (
         <div className="form-field">
-          <label htmlFor="fullName">Full name</label>
-          <input id="fullName" name="fullName" type="text" autoComplete="name" required />
+          <label htmlFor="savedAddress">Deliver to</label>
+          <select
+            id="savedAddress"
+            value={selectedAddressId}
+            onChange={(e) => setSelectedAddressId(e.target.value)}
+          >
+            {savedAddresses.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.fullName} — {[a.streetLine, a.city].filter(Boolean).join(", ")}
+              </option>
+            ))}
+            <option value="new">Use a new address</option>
+          </select>
         </div>
-        <div className="form-field">
-          <label htmlFor="phone">Phone</label>
-          <input id="phone" name="phone" type="tel" autoComplete="tel" required placeholder="0912345678" />
-          <p className="form-hint">Used for delivery updates and to pre-fill your payment page.</p>
-        </div>
-      </div>
+      )}
 
-      <div className="form-row form-row--2">
-        <div className="form-field">
-          <label htmlFor="city">City</label>
-          <input id="city" name="city" type="text" autoComplete="address-level2" required defaultValue="Addis Ababa" />
+      {/* Remounts with fresh defaultValues whenever a different saved
+          address is picked — uncontrolled inputs, so this is the standard,
+          low-risk way to "prefill" them without turning the whole payment
+          form into controlled state. */}
+      <div key={selectedAddressId}>
+        <div className="form-row form-row--2">
+          <div className="form-field">
+            <label htmlFor="fullName">Full name</label>
+            <input id="fullName" name="fullName" type="text" autoComplete="name" required defaultValue={selectedAddress?.fullName} />
+          </div>
+          <div className="form-field">
+            <label htmlFor="phone">Phone</label>
+            <input id="phone" name="phone" type="tel" autoComplete="tel" required placeholder="0912345678" defaultValue={selectedAddress?.phone} />
+            <p className="form-hint">Used for delivery updates and to pre-fill your payment page.</p>
+          </div>
         </div>
-        <div className="form-field">
-          <label htmlFor="streetLine">Street / area</label>
-          <input id="streetLine" name="streetLine" type="text" autoComplete="street-address" required />
+
+        <div className="form-row form-row--2">
+          <div className="form-field">
+            <label htmlFor="city">City</label>
+            <input id="city" name="city" type="text" autoComplete="address-level2" required defaultValue={selectedAddress?.city ?? "Addis Ababa"} />
+          </div>
+          <div className="form-field">
+            <label htmlFor="streetLine">Street / area</label>
+            <input id="streetLine" name="streetLine" type="text" autoComplete="street-address" required defaultValue={selectedAddress?.streetLine ?? ""} />
+          </div>
         </div>
+
+        <div className="form-row form-row--2">
+          <div className="form-field">
+            <label htmlFor="subCity">Sub-city (optional)</label>
+            <input id="subCity" name="subCity" type="text" defaultValue={selectedAddress?.subCity ?? ""} />
+          </div>
+          <div className="form-field">
+            <label htmlFor="landmark">Landmark (optional)</label>
+            <input id="landmark" name="landmark" type="text" placeholder="e.g. near Bole Medhanealem" defaultValue={selectedAddress?.landmark ?? ""} />
+          </div>
+        </div>
+
+        {isSignedIn && selectedAddressId === "new" && (
+          <label style={{ display: "flex", gap: "var(--space-2)", alignItems: "center", marginBottom: "var(--space-4)" }}>
+            <input type="checkbox" name="saveAddress" value="true" />
+            Save this address for next time
+          </label>
+        )}
       </div>
 
       <div className="form-field">

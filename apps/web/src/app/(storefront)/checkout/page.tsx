@@ -4,6 +4,7 @@ import { getCartDetail } from "@/server/cart/get-cart-detail";
 import { CheckoutForm } from "@/components/checkout-form";
 import { Money } from "@/components/money";
 import { getSessionUser } from "@/server/auth/session";
+import { listAddressesForUser } from "@/server/addresses/address-service";
 
 export const metadata: Metadata = { title: "Checkout" };
 
@@ -11,6 +12,7 @@ export default async function CheckoutPage() {
   const cart = await getCartDetail();
   if (!cart) redirect("/cart");
   const sessionUser = await getSessionUser();
+  const savedAddresses = sessionUser ? await listAddressesForUser(sessionUser.id) : [];
 
   return (
     <div className="container checkout-page">
@@ -21,7 +23,20 @@ export default async function CheckoutPage() {
         {/* subtotalSantim drives the live shipping/VAT/total breakdown the
             form renders itself, using the SAME pricing modules
             checkout-service.ts calls server-side — see that component. */}
-        <CheckoutForm subtotalSantim={cart.subtotalSantim} isSignedIn={Boolean(sessionUser)} />
+        <CheckoutForm
+          subtotalSantim={cart.subtotalSantim}
+          isSignedIn={Boolean(sessionUser)}
+          savedAddresses={savedAddresses.map((a) => ({
+            id: a.id,
+            fullName: a.fullName,
+            phone: a.phone,
+            city: a.city,
+            subCity: a.subCity,
+            woreda: a.woreda,
+            streetLine: a.streetLine,
+            landmark: a.landmark,
+          }))}
+        />
       </div>
 
       <aside className="summary-card">

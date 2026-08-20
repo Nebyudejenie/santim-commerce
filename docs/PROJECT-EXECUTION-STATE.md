@@ -332,11 +332,30 @@ rather than inventing busywork.
 - [ ] **Wishlist / saved items** — confirmed absent (no Wishlist model,
       zero matches anywhere). Explicitly named in the master mandate's
       buyer feature list. Not yet built.
-- [ ] **Address book** — the `Address` model has existed in the schema
-      since an earlier phase but has zero real usage anywhere (`grep
-      prisma.address` across the whole app returns nothing) — checkout
-      collects a one-off address every time rather than letting a returning
-      customer save/select one. Not yet built.
+- [x] **Address book** — no schema change needed; the `Address` model had
+      existed since an earlier phase with zero real usage. New
+      `address-service.ts`/`address-actions.ts`, ownership-checked exactly
+      like every other per-user resource in this codebase (a cross-user
+      update/delete attempt gets the identical "not found" a real miss
+      would, verified with a dedicated integration test — no distinguishable
+      "forbidden"). New `/account/addresses` page for CRUD. Checkout gets a
+      "Deliver to" selector when the signed-in customer has saved addresses,
+      defaulting to their most recent one; picking a different one remounts
+      the address fields with fresh `defaultValue`s (an uncontrolled-input
+      reset via `key`, not a fully-controlled form — deliberately the
+      lower-risk way to touch the payment-critical checkout path) and a
+      "save this address" checkbox appears only in new-address mode. Saving
+      from checkout is explicitly a best-effort, post-order write (see
+      address-service.ts's `saveAddressFromCheckout`) — never inside
+      checkout-service.ts's transaction, and a failure there is logged and
+      swallowed, never surfaced to the customer or allowed to affect the
+      real payment redirect. Order.shippingAddress stays exactly what it
+      already was: a snapshotted JSON blob, never a foreign key to Address —
+      editing or deleting a saved address later must never be able to alter
+      a past order's real shipping address. 6 new integration tests.
+      Verified end-to-end over real HTTP: a real saved address renders on
+      both `/account/addresses` and inside the checkout "Deliver to"
+      selector; a guest is correctly redirected away from the account page.
 - [ ] **Customer notifications** — confirmed there is no customer-facing
       notification system of any kind (no email sender, no in-app
       notification model/UI). The outbox worker only ever handles

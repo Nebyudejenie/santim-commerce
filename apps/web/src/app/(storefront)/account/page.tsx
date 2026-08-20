@@ -22,9 +22,13 @@ export default async function AccountPage() {
         </form>
       </div>
 
-      <p style={{ color: "var(--fg-muted)", marginBottom: "var(--space-6)" }}>
+      <p style={{ color: "var(--fg-muted)", marginBottom: "var(--space-4)" }}>
         Signed in as {user.email}
       </p>
+
+      <Link href="/account/addresses" className="btn btn--secondary" style={{ marginBottom: "var(--space-6)", display: "inline-flex" }}>
+        Manage addresses
+      </Link>
 
       {orders.length === 0 ? (
         <div className="empty-state">

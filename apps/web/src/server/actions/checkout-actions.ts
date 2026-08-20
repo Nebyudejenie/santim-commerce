@@ -24,6 +24,7 @@ import { logger } from "../observability/logger.js";
 import { checkoutFailuresTotal } from "../observability/metrics.js";
 import { getSessionUser } from "../auth/session.js";
 import { isValidShippingZone } from "../pricing/shipping-service.js";
+import { saveAddressFromCheckout } from "../addresses/address-service.js";
 
 export interface CheckoutFormState {
   readonly ok: boolean;
@@ -45,9 +46,12 @@ export async function submitCheckout(
   const fullName = String(formData.get("fullName") ?? "").trim();
   const city = String(formData.get("city") ?? "").trim();
   const streetLine = String(formData.get("streetLine") ?? "").trim();
+  const subCity = String(formData.get("subCity") ?? "").trim() || undefined;
+  const landmark = String(formData.get("landmark") ?? "").trim() || undefined;
   const shippingZone = String(formData.get("shippingZone") ?? "");
   const acceptPriceChanges = formData.get("acceptPriceChanges") === "true";
   const couponCode = String(formData.get("appliedCouponCode") ?? "").trim() || undefined;
+  const shouldSaveAddress = formData.get("saveAddress") === "true";
 
   if (!email || !email.includes("@")) {
     return { ok: false, error: "Enter a valid email address." };
@@ -75,13 +79,25 @@ export async function submitCheckout(
       phone,
       userId: sessionUser?.id ?? null,
       shippingZone,
-      shippingAddress: { fullName, phone, city, streetLine, shippingZone },
+      shippingAddress: { fullName, phone, city, streetLine, subCity, landmark, shippingZone },
       acceptPriceChanges,
       couponCode,
     });
     paymentUrl = result.paymentUrl;
 
     logger.info("checkout.redirecting_to_gateway", { orderNumber: result.orderNumber });
+
+    // Best-effort, deliberately outside any transaction: saving a
+    // convenience address must never be able to fail or slow down a real
+    // payment redirect. A failure here is logged and swallowed, not
+    // surfaced to the customer — see address-service.ts's own comment.
+    if (sessionUser && shouldSaveAddress) {
+      try {
+        await saveAddressFromCheckout(sessionUser.id, { fullName, phone, city, streetLine, subCity, landmark });
+      } catch (error) {
+        logger.error("checkout.save_address_failed", { userId: sessionUser.id, error: (error as Error).message });
+      }
+    }
   } catch (error) {
     if (error instanceof PriceChangedError) {
       checkoutFailuresTotal.inc({ reason: "price_changed" });
