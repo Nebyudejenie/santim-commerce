@@ -139,8 +139,23 @@ seller domain existing first)
       real confirmation. This is also why **returns/refunds** (next item)
       is scoped to the workflow/data side only, not the money-movement
       side, for the same reason.
-- [ ] **Reviews & ratings** — product reviews, seller reviews, verified-
-      purchase gating, rating aggregation. Nothing exists yet.
+- [x] **Reviews & ratings** (`f94ffbd`) — `ProductReview`/`ReviewReport`.
+      Verified purchase is an ENFORCED precondition (a real order line
+      required, not a cosmetic badge) — the exact same
+      `findEligibleOrderLine` function gates both the write path and the
+      UI's decision to show the form, so they can never drift. One review
+      per (product, user) via a real DB constraint. No separate
+      SellerReview model — a seller's rating is the average across their
+      own products' reviews (real marketplaces mostly work this way at the
+      foundation). Moderation queue (`/admin/reviews`), seller responses
+      (ownership-checked), reporting (one report per user per review, also
+      a real constraint). 7 new tests including the core adversarial case
+      (a user who never bought the product cannot review it — verified
+      zero rows created) and HIDDEN-reviews-excluded-from-aggregation.
+      Verified end-to-end over real HTTP: a real buyer with a real PAID
+      order sees the write-a-review form, a non-buyer doesn't, and a
+      submitted review appears on the real PDP with the correct
+      5.0/1-review aggregate.
 - [ ] **Returns, refunds, disputes** — `OrderStatus` already has
       REFUNDED/PARTIALLY_REFUNDED; no actual return-request workflow,
       approval, or dispute resolution exists yet.
