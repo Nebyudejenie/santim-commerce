@@ -24,7 +24,7 @@ export async function getOrderForUser(userId: string, orderNumber: string) {
       lines: true,
       payments: {
         orderBy: { createdAt: "desc" },
-        select: { status: true, channel: true, channelRef: true, completedAt: true },
+        select: { id: true, status: true, channel: true, channelRef: true, completedAt: true },
       },
     },
   });

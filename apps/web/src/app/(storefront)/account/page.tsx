@@ -35,7 +35,12 @@ export default async function AccountPage() {
       ) : (
         <div>
           {orders.map((order) => (
-            <div key={order.orderNumber} className="order-row">
+            <Link
+              key={order.orderNumber}
+              href={`/account/orders/${order.orderNumber}`}
+              className="order-row"
+              style={{ textDecoration: "none", color: "inherit" }}
+            >
               <div>
                 <p className="order-row__number">{order.orderNumber}</p>
                 <p className="order-row__items">
@@ -47,7 +52,7 @@ export default async function AccountPage() {
                 <StatusPill status={order.status} />
                 <p>{order.placedAt.toISOString().slice(0, 10)}</p>
               </div>
-            </div>
+            </Link>
           ))}
         </div>
       )}
