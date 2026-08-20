@@ -242,10 +242,12 @@ Phases not yet freshly re-walked with this session's evidence standard:
    duplicate webhook, delayed webhook are not yet freshly re-verified this
    pass, though the underlying webhook dedup mechanism was confirmed at
    the unit-test level in the audit).
-3. **Phase 14/15** — observability (verify the Grafana dashboard's actual
-   PromQL queries resolve against real metric names the app emits — flagged
-   as unverified when the release doc was written; no load test was run
-   this pass despite k6 scripts existing and being reviewed).
+3. **Phase 14/15** — observability: dashboard-vs-metrics drift check now
+   done (all 11 metric names in the Grafana dashboard's PromQL queries
+   confirmed to exactly match real registrations in
+   `apps/web/src/server/observability/metrics.ts` — no drift). Still open:
+   no load test was run this pass despite k6 scripts existing and being
+   reviewed for correctness.
 4. **Phase 17** — K8s runtime validation: only static (kubeconform) —
    no real cluster was available or provisioned (correctly out of scope
    per the mandate's own Phase 17 guidance).

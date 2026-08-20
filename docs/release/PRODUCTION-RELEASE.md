@@ -228,10 +228,16 @@ alone.**
   signals, not just infra metrics — checkout outcomes/failure reasons,
   amount mismatches, unresolved payments, payment settlement status,
   gateway latency, webhook results, expired reservations — alongside
-  process CPU/memory. Not yet verified that these panels' underlying
-  Prometheus queries actually resolve against the metrics the app emits
-  (i.e., dashboard-vs-metrics-name drift wasn't checked) — do that before
-  relying on it during a real incident.
+  process CPU/memory. **Verified**: every metric name referenced by the
+  dashboard's PromQL queries (`santim_orders_placed_total`,
+  `santim_checkout_failures_total`, `santim_checkout_sessions_total`,
+  `santim_payment_settlements_total`, `santim_payment_amount_mismatch_total`,
+  `santim_gateway_request_duration_seconds_{bucket,count}`,
+  `santim_webhook_requests_total`, `santim_payments_unresolved`,
+  `santim_inventory_reservations_expired_total`, plus the standard
+  `process_cpu_seconds_total`/`process_resident_memory_bytes`) has an exact
+  match in `apps/web/src/server/observability/metrics.ts`'s real metric
+  registrations — no dashboard-vs-app name drift.
 
 ## 13. Fixed since this document's first version
 
@@ -281,11 +287,9 @@ cart correctly left resumable. Full detail with commit SHAs:
 - Admin order/email search (`ILIKE '%term%'`) has no index that can serve
   a leading wildcard — will get slow at scale. Admin-only, not
   customer/payment facing; a `pg_trgm` GIN index is the fix when needed.
-- No load test has been run against a real deployed environment (only
-  reviewed for correctness); the Grafana dashboard's panels were reviewed
-  for covering real business-health signals but its underlying PromQL
-  queries were not verified to actually resolve against the metric names
-  the app emits — do that before relying on it during a real incident.
+- No load test has been run against a real deployed environment (k6
+  scripts exist and were reviewed for correctness, not executed against a
+  live target — there is none yet).
 - This document has not itself been exercised end-to-end against a real
   target environment (no such environment exists yet for this project) —
   every step above is derived from reading the actual, real configuration
