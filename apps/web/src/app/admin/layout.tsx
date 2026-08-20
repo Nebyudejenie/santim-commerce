@@ -21,7 +21,10 @@ import "./admin.css";
  * around it — nesting is what lets "protected" be the default for
  * everything except the one route that must stay reachable while logged out.
  */
-export const metadata: Metadata = { title: { default: "Admin", template: "%s — LUMEN Admin" } };
+export const metadata: Metadata = {
+  title: { default: "Admin", template: "%s — LUMEN Admin" },
+  robots: { index: false, follow: false },
+};
 
 export const viewport: Viewport = {
   themeColor: [

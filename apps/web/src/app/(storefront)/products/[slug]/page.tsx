@@ -23,9 +23,21 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const product = await getProductBySlug(slug);
   if (!product) return { title: "Product not found" };
+
+  const title = product.metaTitle ?? product.title;
+  const description = product.metaDescription ?? product.subtitle ?? undefined;
+  const image = product.images[0]?.url ?? product.heroImage ?? undefined;
+
   return {
-    title: product.metaTitle ?? product.title,
-    description: product.metaDescription ?? product.subtitle ?? undefined,
+    title,
+    description,
+    alternates: { canonical: `/products/${slug}` },
+    openGraph: {
+      title,
+      description,
+      type: "website",
+      images: image ? [{ url: image }] : undefined,
+    },
   };
 }
 
@@ -53,8 +65,64 @@ export default async function ProductPage({ params }: Props) {
   ]);
   const canReview = user !== null && !alreadyReviewed && eligibleLine !== null;
 
+  const priceValues = variants.map((v) => v.priceSantim / 100);
+  const totalAvailableStock = variants.reduce((sum, v) => sum + v.available, 0);
+  const image = product.images[0]?.url ?? product.heroImage;
+
+  // Real data only — no fabricated aggregateRating when there are no
+  // reviews, no invented brand/price when the catalogue doesn't have one.
+  // A search engine penalizes structured data that doesn't match what a
+  // user actually sees on the page far more than it rewards having some.
+  const productJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Product",
+    name: product.title,
+    description: product.description,
+    ...(product.brand && { brand: { "@type": "Brand", name: product.brand } }),
+    ...(image && { image: [image] }),
+    ...(priceValues.length > 0 && {
+      offers: {
+        "@type": "AggregateOffer",
+        priceCurrency: "ETB",
+        lowPrice: Math.min(...priceValues).toFixed(2),
+        highPrice: Math.max(...priceValues).toFixed(2),
+        offerCount: priceValues.length,
+        availability: totalAvailableStock > 0 ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
+      },
+    }),
+    ...(rating.count > 0 && rating.average != null && {
+      aggregateRating: {
+        "@type": "AggregateRating",
+        ratingValue: rating.average.toFixed(1),
+        reviewCount: rating.count,
+      },
+    }),
+  };
+
+  const breadcrumbJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      { "@type": "ListItem", position: 1, name: "Home", item: "/" },
+      { "@type": "ListItem", position: 2, name: "Shop", item: "/shop" },
+      { "@type": "ListItem", position: 3, name: product.title, item: `/products/${product.slug}` },
+    ],
+  };
+
   return (
-    <div className="container pdp">
+    <div className="container">
+      <script type="application/ld+json">{JSON.stringify(productJsonLd)}</script>
+      <script type="application/ld+json">{JSON.stringify(breadcrumbJsonLd)}</script>
+
+      <nav aria-label="Breadcrumb" className="breadcrumb">
+        <Link href="/">Home</Link>
+        <span aria-hidden="true"> / </span>
+        <Link href="/shop">Shop</Link>
+        <span aria-hidden="true"> / </span>
+        <span aria-current="page">{product.title}</span>
+      </nav>
+
+      <div className="pdp">
       <div className="pdp__gallery">
         {product.images.length > 0 ? (
           product.images.map((image) => (
@@ -109,6 +177,7 @@ export default async function ProductPage({ params }: Props) {
             </>
           )}
         </div>
+      </div>
       </div>
     </div>
   );

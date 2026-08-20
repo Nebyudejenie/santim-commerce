@@ -294,6 +294,67 @@ seller domain existing first)
       surface, but no messaging system exists yet to moderate — building
       messaging AND its moderation UI is its own multi-part feature).
 
+### Post-roadmap: the mandate's own "do not stop when the TODO list is
+finished" instruction (section 28) — continuing past the 11-item roadmap
+above once every item was checked off. A security review of the whole
+roadmap's diff (coupons through commission config) was run first via a
+dedicated sub-agent and came back clean: every raw SQL call is a
+Prisma-parameterized tagged template, every new Server Action gates its own
+authorization, and the coupon redemption path can't be manipulated via
+client input. Then an Explore audit against the master mandate's full
+buyer/seller/admin feature list, specifically to find real remaining gaps
+rather than inventing busywork.
+
+- [x] **SEO foundations** — this codebase had genuinely zero SEO
+      infrastructure before this pass: no `robots.ts`/`sitemap.ts`, no
+      `metadataBase`, no structured data, no canonical URLs, no breadcrumbs.
+      Added: `app/robots.ts` (disallows /admin, /account, /sell, /cart,
+      /checkout, /api/, /login, /register — all private or dynamic, none of
+      them worth indexing), `app/sitemap.ts` (real, live-queried product/
+      seller/collection URLs via new lightweight `listProductSlugsForSitemap`/
+      `listSellerSlugsForSitemap` — slug+updatedAt only, not
+      listAllProducts()'s eager variant/image includes), `metadataBase` +
+      default OG tags on the storefront root layout, `robots: {index:false}`
+      on the admin root layout (admin has no business being crawled),
+      canonical URL + OpenGraph tags + real Product/BreadcrumbList JSON-LD
+      on the product page — built strictly from data already loaded on that
+      page (no fabricated aggregateRating when a product has zero reviews).
+      A real bug was caught by the end-to-end HTTP verification itself, not
+      by inspection: `robots.txt` was being statically prerendered at BUILD
+      time, freezing whatever `process.env.APP_URL` happened to be during
+      `next build` into the sitemap link forever — a real problem for any
+      deployment where build-time and runtime env differ. Fixed by adding
+      `export const dynamic = "force-dynamic"` (sitemap.ts already had it).
+      No new tests (pure metadata/routing, no new business logic) — verified
+      instead by parsing the real JSON-LD off a live server and confirming
+      it exactly matches the seeded product's real price/brand/description.
+
+- [ ] **Wishlist / saved items** — confirmed absent (no Wishlist model,
+      zero matches anywhere). Explicitly named in the master mandate's
+      buyer feature list. Not yet built.
+- [ ] **Address book** — the `Address` model has existed in the schema
+      since an earlier phase but has zero real usage anywhere (`grep
+      prisma.address` across the whole app returns nothing) — checkout
+      collects a one-off address every time rather than letting a returning
+      customer save/select one. Not yet built.
+- [ ] **Customer notifications** — confirmed there is no customer-facing
+      notification system of any kind (no email sender, no in-app
+      notification model/UI). The outbox worker only ever handles
+      `order.paid`/`order.payment_failed`, and both just create settlement
+      ledger entries or log — nothing is ever actually sent to a customer
+      when their order is placed, paid, shipped, or their return is
+      resolved. A real email integration needs real provider credentials
+      this environment doesn't have; an in-app notification system (a
+      `Notification` model + inbox UI, populated by extending the existing
+      outbox pattern) would be the honest, buildable version of this. Not
+      yet built.
+- [ ] **Admin business-metrics dashboard** — confirmed the admin home page
+      is real but minimal: 5 ops-health tiles (orders/revenue today, stuck
+      payments, expiring reservations) sourced from `getDashboardStats()`,
+      explicitly framed in its own comment as mirroring what the worker
+      checks — not GMV trends, seller counts, commission totals, or
+      return/refund rates. Not yet built.
+
 ### Working discipline for this mandate (carried over from what already
 proved out this session — do not relax these just because the scope grew)
 

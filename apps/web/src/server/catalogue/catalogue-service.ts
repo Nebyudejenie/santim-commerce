@@ -98,6 +98,28 @@ export async function getSellerStorefront(slug: string) {
   return { seller, products };
 }
 
+const SITEMAP_MAX_ENTRIES = 5_000;
+
+/** Slug + freshness only — sitemap.ts has no use for full variant/image
+ * payloads, so this deliberately avoids listAllProducts()'s eager includes. */
+export async function listProductSlugsForSitemap() {
+  return prisma.product.findMany({
+    where: VISIBLE_PRODUCT_WHERE,
+    select: { slug: true, updatedAt: true },
+    orderBy: { updatedAt: "desc" },
+    take: SITEMAP_MAX_ENTRIES,
+  });
+}
+
+export async function listSellerSlugsForSitemap() {
+  return prisma.seller.findMany({
+    where: { status: "APPROVED" },
+    select: { slug: true, updatedAt: true },
+    orderBy: { updatedAt: "desc" },
+    take: SITEMAP_MAX_ENTRIES,
+  });
+}
+
 /** Lowest active-variant price, for the catalogue-grid "from ETB X" display. */
 export function fromPriceSantim(variants: readonly { priceSantim: number }[]): number {
   return variants.reduce((min, v) => Math.min(min, v.priceSantim), Number.POSITIVE_INFINITY);

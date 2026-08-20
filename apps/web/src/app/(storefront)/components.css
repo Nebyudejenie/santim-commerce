@@ -510,6 +510,15 @@
   padding-block: var(--space-7);
 }
 
+.breadcrumb {
+  font-size: var(--text-xs);
+  color: var(--fg-faint);
+  padding-top: var(--space-5);
+}
+.breadcrumb a { color: var(--fg-muted); }
+.breadcrumb a:hover { color: var(--fg); }
+.breadcrumb [aria-current="page"] { color: var(--fg); }
+
 @media (min-width: 900px) {
   .pdp { grid-template-columns: 1.1fr 0.9fr; }
 }
