@@ -14,6 +14,8 @@ import {
   hasReviewed,
   listProductReviews,
 } from "@/server/reviews/review-service";
+import { isWishlisted } from "@/server/wishlist/wishlist-service";
+import { WishlistButton } from "@/components/wishlist-button";
 
 interface Props {
   params: Promise<{ slug: string }>;
@@ -57,11 +59,12 @@ export default async function ProductPage({ params }: Props) {
   // Optional auth — the PDP itself is public, review-writing eligibility is
   // just an extra check for whoever (if anyone) is currently signed in.
   const user = await getSessionUser();
-  const [rating, reviews, alreadyReviewed, eligibleLine] = await Promise.all([
+  const [rating, reviews, alreadyReviewed, eligibleLine, alreadyWishlisted] = await Promise.all([
     getProductRating(product.id),
     listProductReviews(product.id),
     user ? hasReviewed(user.id, product.id) : Promise.resolve(false),
     user ? findEligibleOrderLine(user.id, product.id) : Promise.resolve(null),
+    user ? isWishlisted(user.id, product.id) : Promise.resolve(false),
   ]);
   const canReview = user !== null && !alreadyReviewed && eligibleLine !== null;
 
@@ -159,11 +162,21 @@ export default async function ProductPage({ params }: Props) {
           Sold by <Link href={`/sellers/${product.seller.slug}`}>{product.seller.storeName}</Link>
         </p>
 
-        {variants.length > 0 ? (
-          <AddToCartForm variants={variants} />
-        ) : (
-          <p className="alert alert--error">No purchasable options for this product.</p>
-        )}
+        <div style={{ display: "flex", gap: "var(--space-3)", alignItems: "flex-start", marginBottom: "var(--space-4)" }}>
+          {variants.length > 0 ? (
+            <div style={{ flex: 1 }}>
+              <AddToCartForm variants={variants} />
+            </div>
+          ) : (
+            <p className="alert alert--error" style={{ flex: 1 }}>No purchasable options for this product.</p>
+          )}
+
+          {user ? (
+            <WishlistButton productId={product.id} productSlug={product.slug} initialWishlisted={alreadyWishlisted} />
+          ) : (
+            <Link href="/login" className="wishlist-button">Save</Link>
+          )}
+        </div>
 
         <p className="pdp__description">{product.description}</p>
 

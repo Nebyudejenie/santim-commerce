@@ -178,6 +178,7 @@ model Product {
   variants    Variant[]
   collections CollectionProduct[]
   reviews     ProductReview[]
+  wishlistedBy WishlistItem[]
 
   // SEO
   metaTitle       String?
@@ -396,6 +397,28 @@ model ReviewReport {
   @@map("review_reports")
 }
 
+/// A customer's saved-for-later products. No separate "Wishlist" container
+/// model — each user has exactly one implicit wishlist (their own set of
+/// these rows), the same reasoning CartLine doesn't need a standalone
+/// Cart-per-purpose abstraction beyond the Cart it already belongs to.
+/// `@@unique([userId, productId])` is the real constraint that makes
+/// "toggle" idempotent — adding an already-wishlisted product is a no-op,
+/// not a duplicate row, enforced by the database, not an application-level
+/// check-then-write.
+model WishlistItem {
+  id        String  @id @default(cuid())
+  userId    String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, productId])
+  @@index([userId, createdAt])
+  @@map("wishlist_items")
+}
+
 model Collection {
   id          String  @id @default(cuid())
   slug        String  @unique
@@ -441,6 +464,7 @@ model User {
   reviewReports ReviewReport[]
   returnRequests ReturnRequest[]
   couponRedemptions CouponRedemption[]
+  wishlistItems WishlistItem[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

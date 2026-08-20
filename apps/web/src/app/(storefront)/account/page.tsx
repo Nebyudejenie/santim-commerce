@@ -26,9 +26,10 @@ export default async function AccountPage() {
         Signed in as {user.email}
       </p>
 
-      <Link href="/account/addresses" className="btn btn--secondary" style={{ marginBottom: "var(--space-6)", display: "inline-flex" }}>
-        Manage addresses
-      </Link>
+      <div style={{ display: "flex", gap: "var(--space-3)", marginBottom: "var(--space-6)" }}>
+        <Link href="/account/addresses" className="btn btn--secondary">Manage addresses</Link>
+        <Link href="/account/wishlist" className="btn btn--secondary">Your wishlist</Link>
+      </div>
 
       {orders.length === 0 ? (
         <div className="empty-state">

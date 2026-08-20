@@ -329,9 +329,41 @@ rather than inventing busywork.
       instead by parsing the real JSON-LD off a live server and confirming
       it exactly matches the seeded product's real price/brand/description.
 
-- [ ] **Wishlist / saved items** — confirmed absent (no Wishlist model,
-      zero matches anywhere). Explicitly named in the master mandate's
-      buyer feature list. Not yet built.
+- [x] **Wishlist / saved items** — new `WishlistItem` model, no separate
+      "Wishlist" container: each user has exactly one implicit wishlist
+      (their own rows), the same reasoning CartLine doesn't need a
+      standalone Cart-per-purpose abstraction. `@@unique([userId,
+      productId])` makes toggle-add idempotent under a real concurrent
+      double-click (verified with a dedicated race test), not an
+      application-level check-then-write. A REAL hazard surfaced applying
+      this migration: Prisma's diff engine doesn't understand the
+      hand-written `searchVector` GENERATED column from the search feature
+      (only sees the `Unsupported("tsvector")` placeholder) and generated a
+      spurious `ALTER COLUMN ... DROP DEFAULT` against it, which failed
+      against a real generated column and rolled back the whole migration
+      transaction (confirmed via direct SQL inspection: search indexes and
+      seed data were untouched, `wishlist_items` was never created — the
+      rollback was clean). Fixed by hand-editing the migration file to drop
+      the bogus statements, surgically removing the one stale
+      `_prisma_migrations` tracking row for the failed attempt (not a
+      `prisma migrate reset`, which would have destroyed all real seed data
+      just to fix Prisma's own bookkeeping), then re-applying the corrected
+      SQL. Every future migration touching `products` needs the same check.
+      `listWishlist` deliberately does NOT filter out an item that's since
+      gone unavailable (unpublished product, suspended seller) — a real
+      wishlist says "no longer available", it doesn't silently make the
+      item disappear as if it were never saved (verified directly: an item
+      stays listed with its real current status after its product/seller
+      state changes). Wishlist toggle button on the product page (a plain
+      "Sign in to save" link for guests, no round-trip through the action
+      just to redirect); `/account/wishlist` page. Grid-level wishlist
+      buttons on /shop, /search, and collection pages are a natural,
+      deliberately deferred follow-up (would need every product-listing
+      page to bulk-fetch the signed-in user's full wishlisted-id set, a
+      wider blast radius than this v1 PDP-first scope). 5 new integration
+      tests. Verified end-to-end over real HTTP: a real saved item renders
+      on both the wishlist page and as "Saved" (`aria-pressed="true"`) on
+      its own product page.
 - [x] **Address book** — no schema change needed; the `Address` model had
       existed since an earlier phase with zero real usage. New
       `address-service.ts`/`address-actions.ts`, ownership-checked exactly

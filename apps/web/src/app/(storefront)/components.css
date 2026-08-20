@@ -548,6 +548,22 @@
 .pdp__subtitle { color: var(--fg-muted); margin-bottom: var(--space-4); }
 .pdp__price { font-size: var(--text-xl); font-weight: 600; margin-bottom: var(--space-6); }
 
+.wishlist-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-full);
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+  background: transparent;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+.wishlist-button:hover:not(:disabled) { border-color: var(--fg); color: var(--fg); }
+.wishlist-button[aria-pressed="true"] { border-color: var(--danger); color: var(--danger); }
+.wishlist-button:disabled { opacity: 0.6; cursor: not-allowed; }
+
 .pdp__description {
   color: var(--fg-muted);
   line-height: var(--leading-relaxed);
