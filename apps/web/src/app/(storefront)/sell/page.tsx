@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { requireUser } from "@/server/auth/guard";
 import { getSellerByOwnerId } from "@/server/sellers/seller-service";
 import { SellerApplicationForm } from "@/components/seller-application-form";
@@ -33,6 +34,11 @@ export default async function SellPage() {
               <p className="alert alert--error" style={{ marginTop: "var(--space-4)" }}>
                 Reason: {seller.rejectionReason}
               </p>
+            )}
+            {seller.status === "APPROVED" && (
+              <Link href="/sell/products" className="btn btn--primary btn--full" style={{ marginTop: "var(--space-5)" }}>
+                Go to your listings
+              </Link>
             )}
           </>
         ) : (

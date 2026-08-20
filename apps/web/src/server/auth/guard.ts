@@ -14,6 +14,7 @@ import { redirect } from "next/navigation";
 import type { UserRole } from "@prisma/client";
 import { getSessionUser, type SessionUser } from "./session.js";
 import { hasRole } from "./auth-service.js";
+import { getSellerByOwnerId } from "../sellers/seller-service.js";
 
 /**
  * Redirect to `/admin/login` unless the current session belongs to a user
@@ -37,4 +38,22 @@ export async function requireUser(): Promise<SessionUser> {
     redirect("/login");
   }
   return user;
+}
+
+/**
+ * For seller-console pages (/sell/products/**) — redirects to /sell rather
+ * than throwing, since a PENDING/SUSPENDED/REJECTED seller (or someone with
+ * no seller account at all) has a real, useful place to land: the
+ * application/status page, not a bare error. seller-service.ts's own
+ * `requireApprovedSeller` is the throw-based equivalent for Server Actions,
+ * which must never redirect a form submission somewhere the user didn't
+ * expect — see listing-actions.ts's module comment.
+ */
+export async function requireApprovedSellerForPage() {
+  const user = await requireUser();
+  const seller = await getSellerByOwnerId(user.id);
+  if (!seller || seller.status !== "APPROVED") {
+    redirect("/sell");
+  }
+  return seller;
 }
