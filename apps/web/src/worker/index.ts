@@ -32,6 +32,7 @@ import { registry, reservationsExpiredTotal, stuckPaymentsGauge } from "../serve
 // import of that module would crash it at startup. See session-store.ts's
 // module comment.
 import { purgeExpiredSessions } from "../server/auth/session-store.js";
+import { createLedgerEntriesForOrder } from "../server/orders/settlement-service.js";
 
 const TICK_MS = 5_000;
 const RECONCILE_EVERY_MS = 15 * 60_000;
@@ -215,8 +216,18 @@ async function publishOutbox(): Promise<void> {
   }
 }
 
-/** Replace with real senders (email, SMS, search reindex) as you build them. */
+/**
+ * "order.paid" creates real seller settlement ledger entries — see
+ * settlement-service.ts's own module comment on why this runs here (the
+ * outbox consumer) and not synchronously inside the payment transaction.
+ * Every other topic still just logs — replace with real senders (email,
+ * SMS, search reindex) as you build them.
+ */
 async function deliver(topic: string, payload: unknown): Promise<void> {
+  if (topic === "order.paid") {
+    const { orderId } = payload as { orderId: string };
+    await createLedgerEntriesForOrder(orderId);
+  }
   logger.info("outbox.delivered", { topic, payload });
 }
 

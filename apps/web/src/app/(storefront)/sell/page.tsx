@@ -36,12 +36,15 @@ export default async function SellPage() {
               </p>
             )}
             {seller.status === "APPROVED" && (
-              <div style={{ display: "flex", gap: "var(--space-3)", marginTop: "var(--space-5)" }}>
+              <div style={{ display: "flex", gap: "var(--space-3)", marginTop: "var(--space-5)", flexWrap: "wrap" }}>
                 <Link href="/sell/products" className="btn btn--primary" style={{ flex: 1 }}>
                   Your listings
                 </Link>
                 <Link href="/sell/orders" className="btn btn--secondary" style={{ flex: 1 }}>
                   Your sales
+                </Link>
+                <Link href="/sell/earnings" className="btn btn--secondary" style={{ flex: 1 }}>
+                  Your earnings
                 </Link>
               </div>
             )}

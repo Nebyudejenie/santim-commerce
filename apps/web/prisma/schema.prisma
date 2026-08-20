@@ -68,14 +68,82 @@ model Seller {
   /// Phase 8's settlement design.
   commissionBps Int @default(1000)
 
-  products   Product[]
-  orderLines OrderLine[]
+  products     Product[]
+  orderLines   OrderLine[]
+  ledgerEntries SellerLedgerEntry[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([status])
   @@map("sellers")
+}
+
+/// A real accounting ledger, not `seller_balance = seller_balance + amount`
+/// — every financial fact about a seller's earnings is its own immutable,
+/// append-only row (same "every external event is persisted" philosophy
+/// this whole schema is built on, see the file header). A seller's current
+/// payable balance is always `SUM(amountSantim) WHERE settledAt IS NULL`,
+/// computed from real history, never trusted from a mutable running total.
+///
+/// Created by the worker's outbox consumer when an order's payment is
+/// confirmed (see worker/index.ts's `deliver()` and settlement-service.ts)
+/// — NOT synchronously inside the payment transaction itself, matching
+/// this codebase's own established rule that side effects go through the
+/// outbox, never a direct call inside the transaction that confirms
+/// payment. `@@unique([orderLineId, type])` is what makes this safe under
+/// the outbox's real at-least-once delivery semantics: a redelivered
+/// "order.paid" message tries to insert the identical (orderLineId, type)
+/// pair again, the database rejects the duplicate, settlement-service.ts
+/// treats that as a no-op success — the same pattern WebhookEvent and
+/// ShippingLabel already use elsewhere in this schema, not a new idea.
+model SellerLedgerEntry {
+  id String @id @default(cuid())
+
+  sellerId String
+  seller   Seller @relation(fields: [sellerId], references: [id], onDelete: Restrict)
+
+  /// Denormalized alongside orderLineId for the same reason OrderLine
+  /// snapshots sku/productTitle: a financial record must read correctly
+  /// even if the relations it points at are queried differently later.
+  orderId     String
+  order       Order     @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  orderLineId String
+  orderLine   OrderLine @relation(fields: [orderLineId], references: [id], onDelete: Restrict)
+
+  type LedgerEntryType
+
+  /// Signed santim. Positive = credit (owed to the seller), negative =
+  /// debit. A SALE entry and its COMMISSION entry on the same line always
+  /// sum to the seller's real net for that sale — never stored as a single
+  /// pre-netted number, so the commission actually charged is always
+  /// independently auditable.
+  amountSantim Int
+
+  description String?
+
+  /// NULL = still owed, not yet paid out. Set once a real payout
+  /// mechanism exists and actually pays this entry — deliberately NOT
+  /// built in this pass (see docs/PROJECT-EXECUTION-STATE.md: sending
+  /// real money via SantimPay's B2C payout endpoint for seller payouts
+  /// carries the same unconfirmed-gateway-semantics risk flagged for
+  /// refunds in docs/01-santimpay-protocol-spec.md's own open questions —
+  /// not something to guess at). This field exists so the ledger schema
+  /// doesn't need to change again when that feature is actually built.
+  settledAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@unique([orderLineId, type])
+  @@index([sellerId, settledAt])
+  @@map("seller_ledger_entries")
+}
+
+enum LedgerEntryType {
+  SALE
+  COMMISSION
+  REFUND
+  ADJUSTMENT
 }
 
 enum SellerStatus {
@@ -421,6 +489,7 @@ model Order {
   events         OrderEvent[]
   reservations   InventoryReservation[]
   shippingLabels ShippingLabel[]
+  ledgerEntries  SellerLedgerEntry[]
 
   placedAt    DateTime @default(now())
   paidAt      DateTime?
@@ -491,6 +560,8 @@ model OrderLine {
   /// in sync by hand.
   fulfilmentStatus FulfilmentStatus @default(UNFULFILLED)
   fulfilledAt       DateTime?
+
+  ledgerEntries SellerLedgerEntry[]
 
   createdAt DateTime @default(now())
 
