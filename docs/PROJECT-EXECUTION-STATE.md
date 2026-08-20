@@ -115,13 +115,30 @@ seller domain existing first)
       collection tiles) were confirmed NOT seller-editable and correctly
       left on `next/image`. Re-verified the exact same previously-500ing
       product now returns 200 with a real `<img>` tag in the response.
-- [ ] **Commission & settlement ledger** — `Seller.commissionBps` exists
-      but nothing computes a payable amount yet. Needs a real
-      accounting-oriented model (ledger entries, not a mutable balance
-      field — matching this codebase's own "state is an enum, not a
-      boolean" / "every external event is persisted" design philosophy
-      already encoded in schema.prisma's header comment), refund
-      deduction handling, a payout-status concept.
+- [x] **Commission & settlement ledger** (`b5b5706`) — `SellerLedgerEntry`:
+      append-only SALE/COMMISSION/REFUND/ADJUSTMENT rows, balance always
+      computed fresh from real history (`SUM WHERE settledAt IS NULL`),
+      never a mutable running total. Wired into the ALREADY-EXISTING
+      outbox pattern (worker's `deliver()` was an explicitly documented
+      placeholder for the "order.paid" topic — not a new mechanism).
+      Idempotent under real at-least-once outbox redelivery via a database
+      unique constraint (`@@unique([orderLineId, type])`), verified by
+      calling the settlement function 3× for the same order and confirming
+      exactly one SALE + one COMMISSION entry, not three. Verified a
+      multi-seller order settles each seller's own commission rate
+      independently (5%/20% sellers never leak into each other's ledger).
+      `/sell/earnings` page, re-verified end-to-end over real HTTP.
+      **Deliberately NOT built**: actual money movement (a real SantimPay
+      B2C payout to pay a seller out) — `docs/01-santimpay-protocol-
+      spec.md`'s own §8 open-questions list flags refund/payout semantics
+      against the real gateway as unconfirmed with SantimPay ops.
+      Fabricating a specific real-money gateway call sequence against
+      unconfirmed API semantics is a different risk category than a normal
+      engineering judgment call; `settledAt` exists on the schema so this
+      doesn't need another migration when that capability is built with
+      real confirmation. This is also why **returns/refunds** (next item)
+      is scoped to the workflow/data side only, not the money-movement
+      side, for the same reason.
 - [ ] **Reviews & ratings** — product reviews, seller reviews, verified-
       purchase gating, rating aggregation. Nothing exists yet.
 - [ ] **Returns, refunds, disputes** — `OrderStatus` already has
