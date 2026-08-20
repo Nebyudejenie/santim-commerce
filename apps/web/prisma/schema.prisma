@@ -177,6 +177,7 @@ model Product {
   images      ProductImage[]
   variants    Variant[]
   collections CollectionProduct[]
+  reviews     ProductReview[]
 
   // SEO
   metaTitle       String?
@@ -307,6 +308,83 @@ enum ReservationStatus {
   RELEASED  // payment failed or expired; stock returned
 }
 
+// ------------------------------------------------------------------ reviews
+//
+// One review per (product, user) — @@unique below, a real database
+// constraint, not an application-level "check if one exists first" (same
+// discipline as everything else in this schema). `orderId` is the proof of
+// a verified purchase: review-service.ts requires a real PAID-or-beyond
+// order line for this exact product before a review can be created at
+// all — not a cosmetic "Verified Purchase" badge bolted on after the fact,
+// an actually-enforced precondition, per the master mandate's own framing
+// of "reviews without eligible purchases" as an abuse vector to prevent,
+// not a nice-to-have.
+//
+// No separate SellerReview model: a seller's aggregate rating is computed
+// from the average of all reviews across their own products (real
+// marketplaces mostly work this way at the foundation — Amazon's seller
+// rating is itself an aggregate of buyer feedback, not a free-standing
+// parallel review object) — see review-service.ts's getSellerRating.
+model ProductReview {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// The order that proves this reviewer actually bought this product.
+  /// Restrict, not SetNull: a review's proof-of-purchase must never
+  /// silently disappear if an order is ever deleted (same guardrail
+  /// philosophy as every other Order-child FK in this schema).
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  rating Int /// 1-5, enforced by review-service.ts (Postgres has no native range-check via Prisma here)
+  title  String?
+  body   String  @db.Text
+
+  status ReviewStatus @default(PUBLISHED)
+
+  sellerResponse    String?   @db.Text
+  sellerRespondedAt DateTime?
+
+  reports ReviewReport[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([productId, userId])
+  @@index([productId, status])
+  @@map("product_reviews")
+}
+
+enum ReviewStatus {
+  PUBLISHED
+  /// Hidden by an admin after moderation — not deleted, so the history and
+  /// the report(s) that led to the decision stay auditable.
+  HIDDEN
+}
+
+/// Who reported what, not just a bare counter — an admin moderating a
+/// report needs to see the actual reasons, and `@@unique([reviewId,
+/// reportedByUserId])` (a real constraint) is what stops one user
+/// inflating a report count by reporting by the same review repeatedly.
+model ReviewReport {
+  id       String        @id @default(cuid())
+  reviewId String
+  review   ProductReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  reportedByUserId String
+  reportedBy       User   @relation(fields: [reportedByUserId], references: [id], onDelete: Cascade)
+
+  reason String
+
+  createdAt DateTime @default(now())
+
+  @@unique([reviewId, reportedByUserId])
+  @@map("review_reports")
+}
+
 model Collection {
   id          String  @id @default(cuid())
   slug        String  @unique
@@ -348,6 +426,8 @@ model User {
   /// Present only if this user has applied to sell — see Seller.ownerId's
   /// own comment on why this is 1:1, not 1:N, in v1.
   seller    Seller?
+  reviews       ProductReview[]
+  reviewReports ReviewReport[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -490,6 +570,7 @@ model Order {
   reservations   InventoryReservation[]
   shippingLabels ShippingLabel[]
   ledgerEntries  SellerLedgerEntry[]
+  reviews        ProductReview[]
 
   placedAt    DateTime @default(now())
   paidAt      DateTime?
