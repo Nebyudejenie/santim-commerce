@@ -175,7 +175,7 @@
   font-weight: 600;
 }
 .status-pill--paid, .status-pill--completed, .status-pill--success { background: var(--success-bg); color: var(--success); }
-.status-pill--pending, .status-pill--created { background: var(--bg-subtle); color: var(--fg-muted); }
+.status-pill--pending, .status-pill--created, .status-pill--requested { background: var(--bg-subtle); color: var(--fg-muted); }
 .status-pill--pending_payment { background: #fbead2; color: #915b0d; }
 .status-pill--failed, .status-pill--declined, .status-pill--cancelled { background: var(--danger-bg); color: var(--danger); }
 .status-pill--expired { background: var(--danger-bg); color: var(--danger); }

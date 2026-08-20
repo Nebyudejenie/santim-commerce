@@ -21,7 +21,7 @@ export async function getOrderForUser(userId: string, orderNumber: string) {
   return prisma.order.findFirst({
     where: { orderNumber, userId },
     include: {
-      lines: true,
+      lines: { include: { returnRequest: true } },
       payments: {
         orderBy: { createdAt: "desc" },
         select: { id: true, status: true, channel: true, channelRef: true, completedAt: true },

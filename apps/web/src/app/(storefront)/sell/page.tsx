@@ -43,6 +43,9 @@ export default async function SellPage() {
                 <Link href="/sell/orders" className="btn btn--secondary" style={{ flex: 1 }}>
                   Your sales
                 </Link>
+                <Link href="/sell/returns" className="btn btn--secondary" style={{ flex: 1 }}>
+                  Returns
+                </Link>
                 <Link href="/sell/earnings" className="btn btn--secondary" style={{ flex: 1 }}>
                   Your earnings
                 </Link>

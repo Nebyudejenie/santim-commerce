@@ -639,7 +639,7 @@
 .status-pill--failed, .status-pill--cancelled { background: var(--danger-bg); color: var(--danger); }
 .status-pill--refunded, .status-pill--partially_refunded, .status-pill--unfulfilled,
 .status-pill--fulfilled, .status-pill--partially_fulfilled, .status-pill--returned,
-.status-pill--pending {
+.status-pill--pending, .status-pill--requested {
   background: var(--bg-subtle); color: var(--fg-muted);
 }
 .status-pill--approved { background: var(--success-bg); color: var(--success); }

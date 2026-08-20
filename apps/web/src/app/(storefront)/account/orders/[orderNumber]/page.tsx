@@ -6,6 +6,7 @@ import { getOrderForUser } from "@/server/orders/get-user-orders";
 import { Money } from "@/components/money";
 import { StatusPill } from "@/components/status-pill";
 import { ProductImage } from "@/components/product-image";
+import { RequestReturnButton } from "@/components/request-return-button";
 
 export const metadata: Metadata = { title: "Order details" };
 export const dynamic = "force-dynamic";
@@ -50,6 +51,16 @@ export default async function AccountOrderDetailPage({ params }: Props) {
             <p className="cart-line__variant">
               {line.variantTitle} &times; {line.quantity}
             </p>
+            <div style={{ marginTop: "var(--space-2)" }}>
+              {line.fulfilmentStatus === "FULFILLED" && !line.returnRequest && (
+                <RequestReturnButton orderLineId={line.id} orderNumber={order.orderNumber} />
+              )}
+              {line.returnRequest && (
+                <span style={{ fontSize: "var(--text-xs)", color: "var(--fg-muted)" }}>
+                  Return: <StatusPill status={line.returnRequest.status} />
+                </span>
+              )}
+            </div>
           </div>
           <p className="cart-line__total">
             <Money santim={line.lineTotalSantim} />
