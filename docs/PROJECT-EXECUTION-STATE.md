@@ -229,8 +229,29 @@ seller domain existing first)
       Postgres. Verified end-to-end over real HTTP: keyword search, typo
       search, brand filter, price filter all return the exact same counts
       the service layer computed directly.
-- [ ] **Seller reputation metrics** — order completion/cancellation/return
-      rates, response time — needs order and review data flowing first.
+- [x] **Seller reputation metrics** — real metrics from real order/return/
+      review history, not placeholder scores (`seller-reputation-service.ts`).
+      Completion/cancellation/return rates are plain indexed COUNT queries
+      (cheap regardless of history size); late-shipment rate and review-
+      response time need per-row timestamp diffs, so those are computed
+      over a bounded, most-recent sample (documented scale trade-off, not
+      an oversight). Two real, documented judgment calls: "late shipment"
+      is measured against a default 48h fulfilledAt-minus-paidAt SLA (this
+      codebase's OrderStatus enum has no PROCESSING/SHIPPED/DELIVERED
+      granularity for a real SLA to attach to); "dispute rate" is the
+      fraction of resolved returns needing ADMIN escalation, detected by
+      comparing ReturnRequest.resolvedByUserId against the seller's own id
+      (a seller-resolved return stores the seller's id there, an admin-
+      resolved one stores the admin's — different id namespaces, verified
+      not to collide). Buyer-facing subset (rating, completion rate, return
+      rate) shown on the public seller storefront; full metrics on the
+      seller's own `/sell/reputation`; a bulk, single-query (not per-row —
+      the real N+1 trap this would otherwise be) rating column added to
+      `/admin/sellers`. 5 new integration tests including the zero-data
+      seller (every rate null, never NaN/crash) and the seller-vs-admin
+      dispute disambiguation. Verified end-to-end over real HTTP: storefront
+      trust signals, seller dashboard, and admin rating column all show the
+      exact figures computed from real seeded order/review data.
 - [ ] **Admin marketplace controls** — extend the existing admin surface
       (orders, reconciliation, now sellers) to cover the above as they're
       built: dispute resolution, commission config, promotion management.

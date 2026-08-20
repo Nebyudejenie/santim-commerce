@@ -1,9 +1,11 @@
 import { listAllSellers } from "@/server/sellers/seller-service";
+import { getBulkSellerRatings } from "@/server/sellers/seller-reputation-service";
 import { StatusPill } from "@/components/status-pill";
 import { SellerReviewActions } from "@/components/seller-review-actions";
 
 export default async function AdminSellersPage() {
-  const sellers = await listAllSellers();
+  const [sellers, ratings] = await Promise.all([listAllSellers(), getBulkSellerRatings()]);
+  const ratingBySellerId = new Map(ratings.map((r) => [r.sellerId, r]));
 
   return (
     <div>
@@ -19,6 +21,7 @@ export default async function AdminSellersPage() {
             <tr>
               <th>Store</th>
               <th>Status</th>
+              <th>Rating</th>
               <th>Commission</th>
               <th>Applied</th>
               <th>Reviewed</th>
@@ -26,13 +29,16 @@ export default async function AdminSellersPage() {
             </tr>
           </thead>
           <tbody>
-            {sellers.map((seller) => (
+            {sellers.map((seller) => {
+              const rating = ratingBySellerId.get(seller.id);
+              return (
               <tr key={seller.id}>
                 <td>
                   {seller.storeName}
                   <div style={{ fontSize: "var(--text-xs)", color: "var(--fg-muted)" }}>/{seller.slug}</div>
                 </td>
                 <td><StatusPill status={seller.status} /></td>
+                <td>{rating ? `${rating.averageRating.toFixed(1)} (${rating.reviewCount})` : "—"}</td>
                 <td>{(seller.commissionBps / 100).toFixed(2)}%</td>
                 <td>{seller.createdAt.toISOString().slice(0, 10)}</td>
                 <td>
@@ -47,7 +53,8 @@ export default async function AdminSellersPage() {
                   <SellerReviewActions sellerId={seller.id} status={seller.status} />
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       )}
