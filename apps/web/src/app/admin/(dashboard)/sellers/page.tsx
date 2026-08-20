@@ -2,6 +2,7 @@ import { listAllSellers } from "@/server/sellers/seller-service";
 import { getBulkSellerRatings } from "@/server/sellers/seller-reputation-service";
 import { StatusPill } from "@/components/status-pill";
 import { SellerReviewActions } from "@/components/seller-review-actions";
+import { SellerCommissionForm } from "@/components/seller-commission-form";
 
 export default async function AdminSellersPage() {
   const [sellers, ratings] = await Promise.all([listAllSellers(), getBulkSellerRatings()]);
@@ -39,7 +40,7 @@ export default async function AdminSellersPage() {
                 </td>
                 <td><StatusPill status={seller.status} /></td>
                 <td>{rating ? `${rating.averageRating.toFixed(1)} (${rating.reviewCount})` : "—"}</td>
-                <td>{(seller.commissionBps / 100).toFixed(2)}%</td>
+                <td><SellerCommissionForm sellerId={seller.id} commissionBps={seller.commissionBps} /></td>
                 <td>{seller.createdAt.toISOString().slice(0, 10)}</td>
                 <td>
                   {seller.reviewedAt ? seller.reviewedAt.toISOString().slice(0, 10) : "—"}

@@ -15,8 +15,10 @@ import {
   rejectSeller,
   requireApprovedSeller,
   SellerError,
+  setSellerCommission,
   suspendSeller,
 } from "./seller-service.ts";
+import { createLedgerEntriesForOrder } from "../orders/settlement-service.ts";
 
 const prisma = new PrismaClient();
 
@@ -136,6 +138,93 @@ test("two different sellers CAN use the identical SKU on their own products — 
   await assert.rejects(() =>
     prisma.variant.create({ data: { productId: productA.id, sku: "SAME-SKU", title: "Dup", priceSantim: 999 } }),
   );
+});
+
+test("an admin can adjust a seller's commission rate, and it takes real effect on the seller row", async () => {
+  const userId = await makeUser(`commission-${Math.random().toString(36).slice(2, 8)}`);
+  const adminId = await makeAdmin();
+  const seller = await applyToBecomeSeller({ userId, storeName: "Commission Test Store" });
+  assert.equal(seller.commissionBps, 1000, "the default is 10% unless changed");
+
+  await setSellerCommission(seller.id, 1500, adminId); // 15%
+  const updated = await prisma.seller.findUniqueOrThrow({ where: { id: seller.id } });
+  assert.equal(updated.commissionBps, 1500);
+});
+
+test("commission adjustment rejects an out-of-range basis-points value", async () => {
+  const userId = await makeUser(`commission-bad-${Math.random().toString(36).slice(2, 8)}`);
+  const adminId = await makeAdmin();
+  const seller = await applyToBecomeSeller({ userId, storeName: "Bad Commission Store" });
+
+  await assert.rejects(
+    () => setSellerCommission(seller.id, -100, adminId),
+    (err: unknown) => err instanceof SellerError && /basis points/.test(err.message),
+  );
+  await assert.rejects(
+    () => setSellerCommission(seller.id, 10_001, adminId),
+    (err: unknown) => err instanceof SellerError && /basis points/.test(err.message),
+  );
+
+  const unchanged = await prisma.seller.findUniqueOrThrow({ where: { id: seller.id } });
+  assert.equal(unchanged.commissionBps, 1000, "a rejected update must not have touched the row");
+});
+
+test("changing a seller's commission does not retroactively alter an already-settled ledger entry", async () => {
+  const userId = await makeUser(`commission-retro-${Math.random().toString(36).slice(2, 8)}`);
+  const adminId = await makeAdmin();
+  const seller = await applyToBecomeSeller({ userId, storeName: "Retro Commission Store" });
+  await approveSeller(seller.id, adminId);
+
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const buyer = await prisma.user.create({ data: { email: `seller-test-buyer-${suffix}@example.et`, role: "CUSTOMER" } });
+  const product = await prisma.product.create({
+    data: { sellerId: seller.id, slug: `commission-retro-${suffix}`, title: "Item", description: "d", status: "ACTIVE" },
+  });
+  const variant = await prisma.variant.create({
+    data: { productId: product.id, sku: `CR-${suffix}`, title: "Only", priceSantim: 10_000 },
+  });
+  const order = await prisma.order.create({
+    data: {
+      orderNumber: `SC-CRTEST-${suffix}`.toUpperCase(),
+      userId: buyer.id,
+      email: "buyer@example.et",
+      phone: "+251900000000",
+      status: "PAID",
+      subtotalSantim: 10_000,
+      totalSantim: 10_000,
+      paidAt: new Date(),
+      lines: {
+        create: [
+          {
+            variantId: variant.id,
+            sellerId: seller.id,
+            sku: `CR-${suffix}`,
+            productTitle: "Item",
+            variantTitle: "Only",
+            unitPriceSantim: 10_000,
+            quantity: 1,
+            lineTotalSantim: 10_000,
+          },
+        ],
+      },
+    },
+    include: { lines: true },
+  });
+
+  await createLedgerEntriesForOrder(order.id); // settles at the 10% default rate
+
+  await setSellerCommission(seller.id, 5000, adminId); // 50%, well after settlement
+
+  const commissionEntry = await prisma.sellerLedgerEntry.findFirstOrThrow({
+    where: { orderLineId: order.lines[0]!.id, type: "COMMISSION" },
+  });
+  assert.equal(commissionEntry.amountSantim, -1_000, "the entry was computed at the 10% rate in effect at settlement, and must stay that way forever");
+
+  await prisma.sellerLedgerEntry.deleteMany({ where: { orderId: order.id } });
+  await prisma.orderLine.deleteMany({ where: { orderId: order.id } });
+  await prisma.order.delete({ where: { id: order.id } });
+  await prisma.variant.delete({ where: { id: variant.id } });
+  await prisma.product.delete({ where: { id: product.id } });
 });
 
 test.after(async () => {

@@ -153,6 +153,30 @@ export async function reinstateSeller(sellerId: string, reviewerUserId: string):
 }
 
 /**
+ * Admin-only commission adjustment. Can never retroactively alter a ledger
+ * entry that already exists: settlement-service.ts computes each
+ * SellerLedgerEntry pair (SALE/COMMISSION) once, at settlement time, and
+ * that entry is then immutable — the same "an order line is a historical
+ * record, not a view" principle OrderLine's own schema comment states.
+ * (Settlement reads the seller's CURRENT commissionBps at the moment the
+ * outbox processes "order.paid", which normally follows payment within
+ * moments — not the rate in effect when the order was placed. A rate
+ * change landing inside that brief window is a real, narrow edge case, not
+ * one worth a snapshot-on-order field for.)
+ */
+export async function setSellerCommission(sellerId: string, commissionBps: number, adminUserId: string): Promise<void> {
+  if (!Number.isInteger(commissionBps) || commissionBps < 0 || commissionBps > 10_000) {
+    throw new SellerError("Commission must be a whole number of basis points between 0 and 10000 (0-100%).");
+  }
+
+  const seller = await prisma.seller.findUnique({ where: { id: sellerId } });
+  if (!seller) throw new SellerError("Seller not found.");
+
+  await prisma.seller.update({ where: { id: sellerId }, data: { commissionBps } });
+  logger.info("seller.commission_changed", { sellerId, from: seller.commissionBps, to: commissionBps, adminUserId });
+}
+
+/**
  * The gate every seller-only write action (create/edit a listing, view
  * sold orders) must call first — never trust a client-supplied sellerId.
  * Throws for: no store at all, PENDING (not reviewed yet), REJECTED, or

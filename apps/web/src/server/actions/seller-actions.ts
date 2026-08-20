@@ -15,6 +15,7 @@ import {
   approveSeller,
   rejectSeller,
   SellerError,
+  setSellerCommission,
   suspendSeller,
 } from "../sellers/seller-service.js";
 import { logger } from "../observability/logger.js";
@@ -97,6 +98,32 @@ export async function suspendSellerAction(
   } catch (error) {
     if (error instanceof SellerError) return { ok: false, message: error.message };
     logger.error("seller.suspend_action_failed", { sellerId, error: (error as Error).message });
+    return { ok: false, message: "Something went wrong. Please try again." };
+  }
+}
+
+export async function setSellerCommissionAction(
+  _prev: SellerActionState,
+  formData: FormData,
+): Promise<SellerActionState> {
+  const admin = await requireRole("STAFF");
+  const sellerId = String(formData.get("sellerId") ?? "");
+  const commissionPercent = Number(formData.get("commissionPercent") ?? "");
+  if (!sellerId) return { ok: false, message: "Missing seller id." };
+  if (!Number.isFinite(commissionPercent)) return { ok: false, message: "Enter a valid commission percentage." };
+
+  // The admin enters a human percentage (e.g. "10" for 10%); the service
+  // layer's unit is basis points (1000 = 10.00%), matching Seller.commissionBps's
+  // own doc comment and ledger-calculation.ts's existing convention.
+  const commissionBps = Math.round(commissionPercent * 100);
+
+  try {
+    await setSellerCommission(sellerId, commissionBps, admin.id);
+    revalidatePath("/admin/sellers");
+    return { ok: true, message: `Commission set to ${(commissionBps / 100).toFixed(2)}%.` };
+  } catch (error) {
+    if (error instanceof SellerError) return { ok: false, message: error.message };
+    logger.error("seller.commission_action_failed", { sellerId, error: (error as Error).message });
     return { ok: false, message: "Something went wrong. Please try again." };
   }
 }

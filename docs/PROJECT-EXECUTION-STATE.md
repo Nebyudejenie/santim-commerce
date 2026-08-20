@@ -252,9 +252,47 @@ seller domain existing first)
       dispute disambiguation. Verified end-to-end over real HTTP: storefront
       trust signals, seller dashboard, and admin rating column all show the
       exact figures computed from real seeded order/review data.
-- [ ] **Admin marketplace controls** — extend the existing admin surface
-      (orders, reconciliation, now sellers) to cover the above as they're
-      built: dispute resolution, commission config, promotion management.
+- [x] **Admin marketplace controls** — reviewed the full admin surface
+      against the master mandate's list before adding anything, specifically
+      to avoid rebuilding what already existed: dispute resolution
+      (`/admin/returns`, already shipped with the returns feature),
+      promotion management (`/admin/coupons`, already shipped), and the
+      order audit trail (`/admin/orders/[orderNumber]`'s "Order timeline"
+      section already renders real `OrderEvent` rows — confirmed BEFORE
+      building a redundant audit-log page) were all already real and
+      working, not gaps. Seller reinstatement was suspected to be a gap
+      (no dedicated action/button) but turned out not to be one either:
+      SUSPENDED→APPROVED is a valid transition and the existing Approve
+      button already reuses `approveSellerAction` for it — verified against
+      seller-state-machine.ts before "fixing" something that wasn't broken.
+      The one real, concrete gap found: commission config had zero admin
+      UI — `Seller.commissionBps` could only ever be set at seller-creation
+      time. Added `setSellerCommission` (validates 0-10000bps) + an inline
+      edit form on `/admin/sellers`. The one property that actually matters
+      here — verified with a dedicated integration test — is that changing
+      a seller's rate can NEVER retroactively alter a SellerLedgerEntry
+      that already exists: settlement computes and persists the commission
+      once, at settlement time, and that entry is immutable afterward,
+      same "historical record, not a view" principle as everywhere else in
+      this ledger. 3 new tests (successful adjustment, out-of-range
+      rejection, ledger-immutability-after-rate-change). Verified end-to-
+      end over real HTTP that the admin sellers page renders a seller's
+      real current commission rate in an editable field.
+
+      DELIBERATELY NOT BUILT, with reasoning: a generic cross-entity
+      `AuditLog` table (this codebase's existing pattern — reviewedBy/
+      reviewedAt on Seller, resolvedByUserId/resolvedAt on ReturnRequest,
+      OrderEvent per order — already covers "who did what, when" at each
+      entity that needs it; a parallel generic table would be a second,
+      driftable source of truth, not a real improvement). A live platform-
+      settings UI for the VAT rate/shipping thresholds/default commission
+      (these remain named constants with their own documented judgment-call
+      comments — see tax-service.ts, shipping-service.ts — turning them
+      into runtime-editable config is a real feature with its own real
+      scope, not a checkbox to tick here). A buyer-seller messaging system
+      (named in the master mandate's admin list as "content" moderation
+      surface, but no messaging system exists yet to moderate — building
+      messaging AND its moderation UI is its own multi-part feature).
 
 ### Working discipline for this mandate (carried over from what already
 proved out this session — do not relax these just because the scope grew)
