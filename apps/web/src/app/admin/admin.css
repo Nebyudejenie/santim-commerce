@@ -18,6 +18,8 @@
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn--primary { background: var(--accent); color: var(--accent-fg); }
 .btn--primary:hover:not(:disabled) { opacity: 0.88; }
+.btn--secondary { background: transparent; color: var(--fg); border-color: var(--border-strong); }
+.btn--secondary:hover:not(:disabled) { background: var(--bg-subtle); }
 .btn--full { width: 100%; }
 
 .form-field { margin-bottom: var(--space-4); }
@@ -35,7 +37,12 @@
   background: var(--bg);
   font-size: var(--text-base);
 }
-.form-field input:focus { border-color: var(--brand); outline: none; }
+.form-field select { width: 100%; padding: var(--space-3) var(--space-4); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--bg); font-size: var(--text-base); }
+.form-field input:focus, .form-field select:focus { border-color: var(--brand); outline: none; }
+.form-hint { font-size: var(--text-xs); color: var(--fg-muted); margin-top: var(--space-2); }
+
+.form-row { display: grid; gap: var(--space-4); grid-template-columns: 1fr; }
+@media (min-width: 560px) { .form-row--2 { grid-template-columns: 1fr 1fr; } }
 
 .alert {
   padding: var(--space-4);
@@ -182,6 +189,8 @@
 .status-pill--refunded, .status-pill--partially_refunded { background: var(--bg-subtle); color: var(--fg-muted); }
 .status-pill--approved, .status-pill--published { background: var(--success-bg); color: var(--success); }
 .status-pill--suspended, .status-pill--rejected, .status-pill--hidden { background: var(--danger-bg); color: var(--danger); }
+.status-pill--active { background: var(--success-bg); color: var(--success); }
+.status-pill--inactive { background: var(--bg-subtle); color: var(--fg-muted); }
 
 .filter-bar { display: flex; gap: var(--space-3); margin-bottom: var(--space-5); flex-wrap: wrap; }
 .filter-bar input, .filter-bar select {

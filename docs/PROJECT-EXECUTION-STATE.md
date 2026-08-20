@@ -170,7 +170,38 @@ seller domain existing first)
       real HTTP AND a direct SQL query confirming onHand genuinely went
       3→4, not just that the app claimed it did. UI: buyer request button,
       `/sell/returns`, `/admin/returns`.
-- [ ] **Coupons & promotions** — nothing exists yet.
+- [x] **Coupons & promotions** — platform-wide, admin-issued coupons
+      (`Coupon` + `CouponRedemption`, purely additive migration). Deliberately
+      scoped OUT of v1: seller-issued/listing-scoped coupons — meaningfully
+      bigger feature (partial-cart discount math, which seller's ledger
+      absorbs the cost), documented rather than half-built. `redeemCoupon`
+      runs INSIDE checkout-service.ts's order-creation transaction, before
+      `totalSantim` is computed: atomically decrements a total redemption
+      cap via the same conditional-UPDATE-then-check-row-count pattern as
+      inventory reservation, and the actual `CouponRedemption` row (created
+      after the order, so it has a real orderId) carries the hard
+      `@@unique([couponId, userId])` backstop against a same-user double-
+      redemption race — verified directly with a real concurrent-checkout
+      test (two simultaneous redemptions of a `redemptionsRemaining: 1`
+      coupon: exactly one wins, count never goes negative). Coupons require
+      a signed-in customer in v1 (guest checkout + coupon is rejected
+      before any DB work, with a real integration test) — the per-user
+      limit has nothing to key on for a guest. VAT is computed on the
+      post-discount subtotal; the free-shipping threshold is evaluated on
+      the pre-discount subtotal (a merchandise-value threshold a coupon
+      shouldn't also unlock) — both documented as judgment calls the same
+      way the pre-existing VAT-on-shipping question already is. Checkout UI
+      has a live "Apply coupon" preview (a read-only dry-run, no
+      reservation) so the customer sees the real discount before paying;
+      the authoritative check still happens at real checkout, same
+      optimistic-then-authoritative pattern already used for price/seller-
+      status re-checks. Admin UI at `/admin/coupons` (create + activate/
+      deactivate, real redemption counts from `_count`). 15 + 3 new tests
+      (calculation unit tests, coupon-service integration tests including
+      createCoupon's birr-parsing/validation, checkout-service guest-
+      guard). Verified end-to-end over real HTTP: coupon field present only
+      when signed in, absent for guests, admin page correctly gated and
+      showing a real seeded coupon; a non-admin is redirected away.
 - [ ] **Search depth** — current search is catalogue browsing only (no
       keyword search implementation was found in Phase 2's earlier audit
       of this codebase); real marketplace search (filtering, sorting,

@@ -2,34 +2,91 @@
 
 import { useActionState, useMemo, useState } from "react";
 import { submitCheckout, type CheckoutFormState } from "@/server/actions/checkout-actions";
+import { previewCouponAction, type CouponPreviewState } from "@/server/actions/coupon-actions";
 import { calculateShipping, SHIPPING_ZONES, type ShippingZone } from "@/server/pricing/shipping-service";
 import { calculateTax } from "@/server/pricing/tax-service";
 import { santim } from "@santim/santimpay/money";
 import { Money } from "./money";
 
 const INITIAL_STATE: CheckoutFormState = { ok: false };
+const INITIAL_COUPON_STATE: CouponPreviewState = { ok: false };
 
-export function CheckoutForm({ subtotalSantim }: { subtotalSantim: number }) {
+export function CheckoutForm({
+  subtotalSantim,
+  isSignedIn,
+}: {
+  subtotalSantim: number;
+  isSignedIn: boolean;
+}) {
   const [state, formAction, pending] = useActionState(submitCheckout, INITIAL_STATE);
+  const [couponState, couponAction, couponPending] = useActionState(previewCouponAction, INITIAL_COUPON_STATE);
   const [acceptedPriceChanges, setAcceptedPriceChanges] = useState(false);
   const [zone, setZone] = useState<ShippingZone>("ADDIS_ABABA");
 
   const needsPriceConfirmation = Boolean(state.priceChangedVariantIds?.length) && !acceptedPriceChanges;
 
+  // An applied coupon is only "live" once the preview action returns ok for
+  // the code currently in the input — editing the code after a successful
+  // preview clears the applied discount until it's re-verified.
+  const appliedDiscountSantim = couponState.ok ? (couponState.discountSantim ?? 0) : 0;
+  const appliedCouponCode = couponState.ok ? (couponState.code ?? "") : "";
+
   // Computed with the SAME pricing modules checkout-service.ts calls
-  // server-side (see that file's import of these two) — not a
-  // reimplemented approximation. What the customer sees here is what gets
-  // charged, because it's the identical function, not a copy of its logic.
+  // server-side (see that file's import of these two), applying the
+  // discount the exact same way checkout-service.ts's placeOrder does: VAT
+  // on the post-discount subtotal, shipping-threshold on the pre-discount
+  // one. What the customer sees here is what gets charged.
   const { shippingSantim, taxSantim, totalSantim } = useMemo(() => {
     const subtotal = santim(subtotalSantim);
     const shipping = calculateShipping(zone, subtotal);
-    const tax = calculateTax(subtotal);
-    return { shippingSantim: shipping, taxSantim: tax, totalSantim: subtotal + shipping + tax };
-  }, [zone, subtotalSantim]);
+    const taxable = Math.max(0, subtotal - appliedDiscountSantim);
+    const tax = calculateTax(santim(taxable));
+    return { shippingSantim: shipping, taxSantim: tax, totalSantim: taxable + shipping + tax };
+  }, [zone, subtotalSantim, appliedDiscountSantim]);
 
   return (
-    <form action={formAction}>
+    <>
+      {/* Lives outside the main form — HTML forbids a nested <form>. The
+          coupon inputs/button below reference it via the `form` attribute,
+          which is exactly what that attribute is for. */}
+      <form id="coupon-preview-form" action={couponAction} />
+
+      <form action={formAction}>
       <input type="hidden" name="acceptPriceChanges" value={acceptedPriceChanges ? "true" : "false"} />
+      <input type="hidden" name="appliedCouponCode" value={appliedCouponCode} />
+
+      {isSignedIn && (
+        <div className="form-field">
+          <label htmlFor="couponCode">Coupon code</label>
+          <div style={{ display: "flex", gap: "var(--space-2)" }}>
+            <input
+              id="couponCode"
+              name="couponCode"
+              form="coupon-preview-form"
+              type="text"
+              placeholder="e.g. WELCOME10"
+              style={{ flex: 1 }}
+            />
+            <input type="hidden" form="coupon-preview-form" name="subtotalSantim" value={subtotalSantim} />
+            <button
+              type="submit"
+              form="coupon-preview-form"
+              className="btn btn--secondary"
+              disabled={couponPending}
+            >
+              {couponPending ? "…" : "Apply"}
+            </button>
+          </div>
+          {couponState.message && (
+            <p className={couponState.ok ? "form-hint" : "form-hint form-hint--error"}>{couponState.message}</p>
+          )}
+          {couponState.ok && (
+            <p className="form-hint">
+              Applied {couponState.code}: <Money santim={appliedDiscountSantim} /> off
+            </p>
+          )}
+        </div>
+      )}
 
       {state.error && <p className="alert alert--error">{state.error}</p>}
 
@@ -82,6 +139,12 @@ export function CheckoutForm({ subtotalSantim }: { subtotalSantim: number }) {
           <span>Subtotal</span>
           <Money santim={subtotalSantim} />
         </div>
+        {appliedDiscountSantim > 0 && (
+          <div className="summary-row">
+            <span>Discount ({appliedCouponCode})</span>
+            <span>-<Money santim={appliedDiscountSantim} /></span>
+          </div>
+        )}
         <div className="summary-row">
           <span>Shipping</span>
           {shippingSantim === 0 ? "Free" : <Money santim={shippingSantim} />}
@@ -121,6 +184,7 @@ export function CheckoutForm({ subtotalSantim }: { subtotalSantim: number }) {
         <span className="payment-chip">Amole</span>
         <span className="payment-chip">HelloCash</span>
       </p>
-    </form>
+      </form>
+    </>
   );
 }

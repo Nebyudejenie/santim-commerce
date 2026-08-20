@@ -429,6 +429,7 @@ model User {
   reviews       ProductReview[]
   reviewReports ReviewReport[]
   returnRequests ReturnRequest[]
+  couponRedemptions CouponRedemption[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -573,6 +574,7 @@ model Order {
   ledgerEntries  SellerLedgerEntry[]
   reviews        ProductReview[]
   returnRequests ReturnRequest[]
+  couponRedemption CouponRedemption?
 
   placedAt    DateTime @default(now())
   paidAt      DateTime?
@@ -587,6 +589,73 @@ model Order {
   // cover it, placedAt and paidAt are different moments for the same order.
   @@index([status, paidAt])
   @@map("orders")
+}
+
+// ------------------------------------------------------------ promotions
+
+/// Platform-wide coupons only in v1 — admin-issued, applied to the whole
+/// cart subtotal. Seller-issued, listing-scoped promotions are real
+/// marketplace functionality but a meaningfully bigger feature (partial-cart
+/// discount math, which seller's ledger absorbs the cost); deliberately not
+/// built here. See docs/PROJECT-EXECUTION-STATE.md.
+model Coupon {
+  id          String @id @default(cuid())
+  /// Always stored/looked-up uppercase — see coupon-service.ts.
+  code        String @unique
+  description String?
+
+  discountType  CouponDiscountType
+  /// PERCENTAGE: whole points, e.g. 10 = 10%. FIXED_AMOUNT: santim.
+  discountValue Int
+  /// Caps a PERCENTAGE discount's absolute santim value. Ignored for FIXED_AMOUNT.
+  maxDiscountSantim Int?
+  minSubtotalSantim Int @default(0)
+
+  /// Total redemptions allowed across all customers. Null = unlimited.
+  /// Decremented with an atomic conditional UPDATE inside the checkout
+  /// transaction (same pattern as inventory reservation) so concurrent
+  /// checkouts can never oversell a limited coupon.
+  redemptionsRemaining Int?
+
+  validFrom  DateTime?
+  validUntil DateTime?
+  /// Admin kill-switch, independent of the date window.
+  active     Boolean @default(true)
+
+  redemptions CouponRedemption[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([active])
+  @@map("coupons")
+}
+
+enum CouponDiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
+/// One row per successful redemption. `@@unique([couponId, userId])` is the
+/// hard, database-enforced "one use per customer per coupon" rule in v1 —
+/// see coupon-service.ts for why this replaces a general per-user counter.
+model CouponRedemption {
+  id       String @id @default(cuid())
+  couponId String
+  coupon   Coupon @relation(fields: [couponId], references: [id], onDelete: Restrict)
+  userId   String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+  orderId  String @unique
+  order    Order  @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  /// Snapshotted actual discount applied — Coupon's own rules can change
+  /// later, this row must not.
+  discountSantim Int
+
+  createdAt DateTime @default(now())
+
+  @@unique([couponId, userId])
+  @@map("coupon_redemptions")
 }
 
 enum OrderStatus {

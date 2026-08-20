@@ -3,12 +3,14 @@ import type { Metadata } from "next";
 import { getCartDetail } from "@/server/cart/get-cart-detail";
 import { CheckoutForm } from "@/components/checkout-form";
 import { Money } from "@/components/money";
+import { getSessionUser } from "@/server/auth/session";
 
 export const metadata: Metadata = { title: "Checkout" };
 
 export default async function CheckoutPage() {
   const cart = await getCartDetail();
   if (!cart) redirect("/cart");
+  const sessionUser = await getSessionUser();
 
   return (
     <div className="container checkout-page">
@@ -19,7 +21,7 @@ export default async function CheckoutPage() {
         {/* subtotalSantim drives the live shipping/VAT/total breakdown the
             form renders itself, using the SAME pricing modules
             checkout-service.ts calls server-side — see that component. */}
-        <CheckoutForm subtotalSantim={cart.subtotalSantim} />
+        <CheckoutForm subtotalSantim={cart.subtotalSantim} isSignedIn={Boolean(sessionUser)} />
       </div>
 
       <aside className="summary-card">

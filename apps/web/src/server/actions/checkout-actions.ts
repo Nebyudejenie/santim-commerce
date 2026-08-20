@@ -47,6 +47,7 @@ export async function submitCheckout(
   const streetLine = String(formData.get("streetLine") ?? "").trim();
   const shippingZone = String(formData.get("shippingZone") ?? "");
   const acceptPriceChanges = formData.get("acceptPriceChanges") === "true";
+  const couponCode = String(formData.get("appliedCouponCode") ?? "").trim() || undefined;
 
   if (!email || !email.includes("@")) {
     return { ok: false, error: "Enter a valid email address." };
@@ -76,6 +77,7 @@ export async function submitCheckout(
       shippingZone,
       shippingAddress: { fullName, phone, city, streetLine, shippingZone },
       acceptPriceChanges,
+      couponCode,
     });
     paymentUrl = result.paymentUrl;
 

@@ -34,6 +34,7 @@ import { env } from "../config/env.js";
 import { startPayment, type StartPaymentResult } from "../payments/payment-service.js";
 import { calculateShipping, type ShippingZone } from "../pricing/shipping-service.js";
 import { calculateTax } from "../pricing/tax-service.js";
+import { redeemCoupon, CouponError } from "../promotions/coupon-service.js";
 
 export class CheckoutError extends Error {
   override name = "CheckoutError";
@@ -73,6 +74,14 @@ export interface PlaceOrderInput {
    * this, a price increase would otherwise be charged silently.
    */
   readonly acceptPriceChanges?: boolean;
+  /**
+   * Requires a signed-in customer (`userId` set) — the per-user "one
+   * redemption" rule (coupon-service.ts's `@@unique([couponId, userId])`)
+   * has nothing to key on for a guest. `submitCheckout` should disable the
+   * coupon field for guests rather than let this throw at submit time, but
+   * the check here is what actually protects it either way.
+   */
+  readonly couponCode?: string;
 }
 
 export interface PlaceOrderResult {
@@ -82,6 +91,10 @@ export interface PlaceOrderResult {
 }
 
 export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResult> {
+  if (input.couponCode && !input.userId) {
+    throw new CheckoutError("Sign in to use a coupon code.");
+  }
+
   let phone: string;
   try {
     phone = normalizeEthiopianMsisdn(input.phone);
@@ -124,14 +137,10 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
   }
 
   const subtotalSantim = cartSubtotalSantim(priced);
-  // VAT is computed on the GOODS subtotal only. Whether Ethiopian VAT also
-  // applies to the shipping charge itself is a real question for an
-  // accountant, not something to assume silently — see tax-service.ts's
-  // module comment. Get that confirmed before this figure is load-bearing
-  // for a real tax filing.
-  const taxSantim = calculateTax(santim(subtotalSantim));
+  // Free-shipping-threshold eligibility is evaluated on the GOODS subtotal
+  // before any coupon discount — it's a merchandise-value threshold ("spend
+  // X, ship free"), not something a discount code should also unlock.
   const shippingSantim = calculateShipping(input.shippingZone, santim(subtotalSantim));
-  const totalSantim = subtotalSantim + shippingSantim + taxSantim;
 
   const orderNumber = await generateUniqueOrderNumber();
 
@@ -145,6 +154,30 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
 
   try {
     const order = await prisma.$transaction(async (tx) => {
+      // Coupon redemption happens first, inside the transaction: it needs
+      // to atomically reserve a limited coupon's last use (see
+      // coupon-service.ts's module comment), and if it throws, the whole
+      // transaction — order, lines, reservation — must never have existed.
+      let discountSantim = 0;
+      let redeemedCouponId: string | null = null;
+      if (input.couponCode) {
+        // input.userId is guaranteed non-null here — checked at the top of
+        // placeOrder before any DB work starts.
+        const redeemed = await redeemCoupon(tx, input.couponCode, input.userId as string, subtotalSantim);
+        discountSantim = redeemed.discountSantim;
+        redeemedCouponId = redeemed.couponId;
+      }
+
+      // VAT is computed on the GOODS subtotal net of any coupon discount —
+      // that's the amount actually being sold for. Whether Ethiopian VAT
+      // also applies to the shipping charge itself is a separate, real
+      // question for an accountant, not something to assume silently — see
+      // tax-service.ts's module comment. Get that confirmed before this
+      // figure is load-bearing for a real tax filing.
+      const taxableSantim = subtotalSantim - discountSantim;
+      const taxSantim = calculateTax(santim(taxableSantim));
+      const totalSantim = taxableSantim + shippingSantim + taxSantim;
+
       const created = await tx.order.create({
         data: {
           orderNumber,
@@ -153,6 +186,7 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
           phone,
           status: "PENDING_PAYMENT",
           subtotalSantim,
+          discountSantim,
           shippingSantim,
           taxSantim,
           totalSantim,
@@ -175,6 +209,21 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
         },
       });
 
+      if (redeemedCouponId) {
+        // The real backstop against a same-user double-redemption race — see
+        // coupon-service.ts's module comment. A P2002 here rolls back this
+        // entire transaction, including the redemptionsRemaining decrement
+        // above, so a failed checkout never permanently burns a coupon use.
+        await tx.couponRedemption.create({
+          data: {
+            couponId: redeemedCouponId,
+            userId: input.userId as string,
+            orderId: created.id,
+            discountSantim,
+          },
+        });
+      }
+
       // Reservation happens INSIDE this transaction. If any line is out of
       // stock, `reserveForOrder` throws, the whole transaction — order,
       // lines, and any partial reservations — rolls back atomically. No
@@ -195,10 +244,13 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
       return created;
     });
 
-    logger.info("checkout.order_placed", { orderId: order.id, orderNumber, totalSantim });
+    logger.info("checkout.order_placed", { orderId: order.id, orderNumber, totalSantim: order.totalSantim });
     ordersPlacedTotal.inc();
-    return { orderId: order.id, orderNumber, totalSantim };
+    return { orderId: order.id, orderNumber, totalSantim: order.totalSantim };
   } catch (error) {
+    if (error instanceof CouponError) {
+      throw new CheckoutError(error.message);
+    }
     if (error instanceof InsufficientStockError) {
       logger.warn("checkout.insufficient_stock", {
         cartId: cart.id,

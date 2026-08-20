@@ -65,6 +65,34 @@ test("checkout refuses an item whose seller was suspended after it was added to 
   assert.equal(orders.length, 0, "a rejected checkout must not leave a partial order behind");
 });
 
+test("checkout rejects a coupon code from a guest — the per-user redemption limit has nothing to key on without a userId", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const { variantId } = await makeApprovedSellerWithProduct(`coupon-guest-${suffix}`);
+
+  const cartToken = generateCartToken();
+  await getOrCreateCart(cartToken, null);
+  await addLine({ cartToken, variantId, quantity: 1 });
+
+  await assert.rejects(
+    () =>
+      placeOrder({
+        cartToken,
+        email: "buyer@example.et",
+        phone: "0912345678",
+        shippingZone: "ADDIS_ABABA",
+        userId: null,
+        couponCode: "ANYCODE",
+      }),
+    (err: unknown) => err instanceof CheckoutError && /Sign in to use a coupon/.test(err.message),
+  );
+
+  // Rejected before any DB work starts — real proof, not an assumption:
+  // no order, and the coupon-service.ts code path (which would need a real
+  // userId) was never reached.
+  const orders = await prisma.order.findMany({ where: { email: "buyer@example.et" } });
+  assert.equal(orders.length, 0);
+});
+
 // A full happy-path test through placeOrder() is deliberately NOT written
 // here: placeOrder calls env() (checkout-service.ts:143) BEFORE its DB
 // transaction even starts, and then — on success — calls the real
