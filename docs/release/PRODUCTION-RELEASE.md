@@ -233,23 +233,59 @@ alone.**
   (i.e., dashboard-vs-metrics-name drift wasn't checked) — do that before
   relying on it during a real incident.
 
-## 13. Known risks / open items at this release
+## 13. Fixed since this document's first version
+
+For traceability — these were real gaps found by a dedicated audit after
+this document was first written, fixed, and verified with real evidence
+(not just this document being edited to claim so): the app now sets all 6
+standard OWASP response security headers on every route (`next.config.ts`,
+verified live against a running server); `ingress.yaml` now enforces a
+real per-IP rate limit at the edge on everything except the SantimPay
+webhook path; Order's financial/audit-trail children (OrderLine,
+OrderEvent, PaymentIntent, ShippingLabel) can no longer be silently
+destroyed by a parent-row delete; 3 missing indexes for real, confirmed
+admin-dashboard query patterns were added; the Docker image no longer
+ships devDependencies and now has a HEALTHCHECK; the repository root
+README (referenced throughout this document) now exists. A real chaos
+drill (`pnpm run chaos:checkout-atomicity` — kills a Postgres backend
+connection mid-transaction during checkout) was executed against a real
+database and passed: no partial order, no leaked inventory reservation,
+cart correctly left resumable. Full detail with commit SHAs:
+`docs/PROJECT-EXECUTION-STATE.md`.
+
+## 14. Known risks / open items at this release
 
 - PRs #9 (Prisma 7), #10 (Next.js 16), #14 (TypeScript 7) intentionally
   not merged — each is a real breaking migration, documented in
   [`docs/PROJECT-EXECUTION-STATE.md`](../PROJECT-EXECUTION-STATE.md).
   Staying on the current majors is a deliberate, evidence-based choice,
   not neglect — re-evaluate periodically.
-- No repository root `README.md` exists — a real documentation gap (Phase
-  20), not yet fixed as of this commit.
 - Automated database backups: not established in this codebase — see §11.
   Confirm with whatever managed database service is actually used in the
-  target environment before going live.
-- Dashboards for the Prometheus metrics collected: not found in this
-  repo — see §12.
+  target environment before going live. **Still true as of this update —
+  unchanged.**
 - No version tag has ever been pushed for this project; `v0.1.0` in this
   document is illustrative, not yet real. A human must decide the actual
   version number and create the tag (§6).
+- No application-level brute-force protection on login/register — a real
+  per-IP rate limit now exists at the edge (§ ingress.yaml, added after
+  this document's first version), but that bounds volumetric abuse, not a
+  targeted attacker slow-guessing one account's password. A proper fix
+  (account lockout / backoff) needs careful design to avoid becoming its
+  own DoS vector against a legitimate user — deliberately not implemented
+  under time pressure; see `docs/PROJECT-EXECUTION-STATE.md`'s P2 list.
+- The Content-Security-Policy shipped is intentionally conservative
+  (`frame-ancestors`/`base-uri`/`form-action` only, no `script-src` lockdown)
+  — a fuller policy is real follow-up work, not verified safe to ship this
+  pass.
+- Admin order/email search (`ILIKE '%term%'`) has no index that can serve
+  a leading wildcard — will get slow at scale. Admin-only, not
+  customer/payment facing; a `pg_trgm` GIN index is the fix when needed.
+- No load test has been run against a real deployed environment (only
+  reviewed for correctness); the Grafana dashboard's panels were reviewed
+  for covering real business-health signals but its underlying PromQL
+  queries were not verified to actually resolve against the metric names
+  the app emits — do that before relying on it during a real incident.
 - This document has not itself been exercised end-to-end against a real
   target environment (no such environment exists yet for this project) —
   every step above is derived from reading the actual, real configuration
