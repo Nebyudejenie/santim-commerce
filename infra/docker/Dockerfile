@@ -88,6 +88,34 @@ RUN pnpm --filter @santim/web exec prisma generate
 RUN DATABASE_URL="postgresql://build:build@localhost:5432/build" \
     pnpm --filter @santim/web build
 
+# Strip devDependencies (typescript, eslint, and friends) that the build
+# above needed but the shipped image must not carry. This one image serves
+# three different roles (web via `next start`, worker via `tsx`, and the
+# k8s/compose migrate Job via `prisma migrate deploy` — see
+# job-migrate.yaml and docker-compose.yml's `migrate` service, both
+# `target: runner` from this same Dockerfile), which is why `prisma` itself
+# lives in "dependencies", not "devDependencies", in apps/web/package.json:
+# it is a real runtime dependency of the migrate role sharing this image,
+# not just a build-time tool.
+#
+# `pnpm install --prod` alone is NOT enough here — verified the hard way,
+# outside this Dockerfile, against this exact lockfile: it removes the
+# top-level dependency symlinks but leaves the actual package contents
+# sitting in node_modules/.pnpm, physically unchanged, because pnpm's
+# project-local virtual store isn't garbage-collected as a side effect of
+# a plain install. `pnpm prune --prod` is the separate, dedicated command
+# that actually removes the now-unreferenced packages from
+# node_modules/.pnpm — confirmed by running both, in that order, against a
+# real copy of this lockfile: `install --prod` alone left node_modules/.pnpm
+# unchanged in size; `prune --prod` afterward actually removed the orphaned
+# eslint/typescript package directories and shrank it by ~60MB. `CI=true`
+# is required non-interactively — pnpm refuses to remove node_modules
+# without a TTY otherwise (`ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY`),
+# confirmed by hitting that exact error before adding it.
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
+    pnpm config set store-dir /pnpm/store && \
+    CI=true pnpm prune --prod
+
 # ----------------------------------------------------------------- 3. runner
 FROM node:${NODE_VERSION} AS runner
 ARG COREPACK_VERSION
@@ -111,6 +139,19 @@ COPY --from=builder --chown=node:node /app/apps/web ./apps/web
 
 USER node
 EXPOSE 3000
+
+# This same image also runs as `worker` (docker-compose.yml, tsx, no HTTP
+# port) and as the one-shot `migrate` Job (job-migrate.yaml, `prisma migrate
+# deploy`, exits on completion) by overriding CMD — see both services'
+# comments. A HEALTHCHECK baked in here can only describe the DEFAULT CMD
+# below (the web role); it does not run for those overridden roles, and
+# must not be assumed to. In Kubernetes this is moot either way — the
+# deployments use their own liveness/readinessProbe (deployment-web.yaml,
+# deployment-worker.yaml), which is the only health signal that actually
+# matters there. This exists for the case neither of those cover: someone
+# running `docker run` directly against this image, standalone.
+HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 \
+  CMD node -e "fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 # tini as PID 1. Node is not designed to reap zombies or forward signals as
 # PID 1, so without an init your SIGTERM never reaches the app and every deploy
