@@ -29,7 +29,7 @@ concurrency:
 env:
   NODE_VERSION: "22"
   # pnpm's version is NOT set here — it's pinned once, in package.json's
-  # "packageManager" field, and pnpm/action-setup@v4 reads that
+  # "packageManager" field, and pnpm/action-setup@v6 reads that
   # automatically. Passing an explicit `version:` input here TOO produced
   # a real, caught-in-production failure: "Multiple versions of pnpm
   # specified" (the action refuses to guess which one wins), the moment
@@ -43,7 +43,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
 
       - uses: actions/setup-node@v7
         with:
@@ -106,7 +106,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
 
       - uses: actions/setup-node@v7
         with:
