@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { getCartItemCount } from "@/server/cart/get-cart-summary";
 import { getSessionUser } from "@/server/auth/session";
+import { getUnreadCount } from "@/server/notifications/notification-service";
 import { SearchBar } from "./search-bar";
 
 export async function SiteHeader() {
   const [count, user] = await Promise.all([getCartItemCount(), getSessionUser()]);
+  const unreadNotifications = user ? await getUnreadCount(user.id) : 0;
 
   return (
     <header className="site-header">
@@ -22,6 +24,19 @@ export async function SiteHeader() {
 
         <div className="site-header__actions">
           <SearchBar />
+
+          {user && (
+            <Link href="/account/notifications" className="site-header__cart" aria-label={`Notifications${unreadNotifications > 0 ? `, ${unreadNotifications} unread` : ""}`}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path
+                  d="M18 16v-5a6 6 0 1 0-12 0v5l-1.5 2.5h15L18 16Z"
+                  stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round"
+                />
+                <path d="M9.5 20a2.5 2.5 0 0 0 5 0" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+              </svg>
+              {unreadNotifications > 0 && <span className="site-header__cart-badge">{unreadNotifications}</span>}
+            </Link>
+          )}
 
           <Link href={user ? "/account" : "/login"} className="site-header__account" aria-label={user ? "Your account" : "Sign in"}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">

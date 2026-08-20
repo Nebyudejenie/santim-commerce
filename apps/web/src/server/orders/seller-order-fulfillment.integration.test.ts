@@ -123,7 +123,25 @@ test("seller B CANNOT mark seller A's line fulfilled, even with the real orderLi
   assert.equal(untouched.fulfilmentStatus, "UNFULFILLED", "the cross-seller attempt must not have changed anything");
 });
 
+test("marking a line fulfilled enqueues a real outbox message, but undoing it does not", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const sellerId = await makeSeller(`outbox-${suffix}`);
+  const { lineId } = await makeSingleSellerOrder(sellerId, `outbox-${suffix}`);
+
+  await markLineFulfilled(sellerId, lineId);
+
+  const messages = await prisma.outboxMessage.findMany({ where: { topic: "order.line_fulfilled" } });
+  const forThisLine = messages.filter((m) => (m.payload as { orderLineId: string }).orderLineId === lineId);
+  assert.equal(forThisLine.length, 1, "fulfilling a line must enqueue exactly one order.line_fulfilled message");
+
+  await markLineUnfulfilled(sellerId, lineId);
+  const afterUndo = await prisma.outboxMessage.findMany({ where: { topic: "order.line_fulfilled" } });
+  const stillForThisLine = afterUndo.filter((m) => (m.payload as { orderLineId: string }).orderLineId === lineId);
+  assert.equal(stillForThisLine.length, 1, "undoing a fulfilment must not enqueue a second message for the same line");
+});
+
 test.after(async () => {
+  await prisma.outboxMessage.deleteMany({ where: { topic: "order.line_fulfilled" } });
   await prisma.orderLine.deleteMany({ where: { order: { orderNumber: { startsWith: "SC-FULFIL" } } } });
   await prisma.order.deleteMany({ where: { orderNumber: { startsWith: "SC-FULFIL" } } });
   await prisma.seller.deleteMany({ where: { slug: { startsWith: "fulfil-test-" } } });

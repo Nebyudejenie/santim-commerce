@@ -787,6 +787,21 @@
 .order-row__meta { text-align: right; font-size: var(--text-sm); color: var(--fg-muted); }
 .order-row__total { font-weight: 600; color: var(--fg); margin-bottom: 2px; }
 
+.notification-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-4);
+  padding: var(--space-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-3);
+}
+.notification-row--unread { border-color: var(--brand); background: color-mix(in srgb, var(--brand) 6%, transparent); }
+.notification-row__title { font-weight: 600; margin-bottom: 2px; }
+.notification-row__body { font-size: var(--text-sm); color: var(--fg-muted); margin-bottom: var(--space-2); }
+.notification-row__meta { font-size: var(--text-xs); color: var(--fg-faint); }
+
 .status-pill {
   display: inline-flex;
   padding: 2px var(--space-3);

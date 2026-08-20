@@ -465,6 +465,7 @@ model User {
   returnRequests ReturnRequest[]
   couponRedemptions CouponRedemption[]
   wishlistItems WishlistItem[]
+  notifications Notification[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -937,6 +938,47 @@ model OutboxMessage {
 
   @@index([publishedAt, availableAt])
   @@map("outbox_messages")
+}
+
+/// In-app customer notifications — populated by the outbox worker (see
+/// worker/index.ts's deliver()), never written directly inside the same
+/// transaction as the state change that caused them, same reasoning as
+/// every other outbox-driven side effect. No real email/SMS provider
+/// credentials exist in this environment (see docs/PROJECT-EXECUTION-
+/// STATE.md), so this is the honest, buildable version of "notify the
+/// customer" rather than a fabricated integration.
+///
+/// `dedupeKey` is the real idempotency guard under the outbox's at-least-
+/// once delivery semantics — a redelivered "order.paid" message must not
+/// double-notify the customer, enforced by this unique constraint, not an
+/// application-level check-then-write (same pattern as SellerLedgerEntry's
+/// `@@unique([orderLineId, type])`).
+model Notification {
+  id     String           @id @default(cuid())
+  userId String
+  user   User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type   NotificationType
+
+  title String
+  body  String
+  /// Where "view" should take the customer, e.g. /account/orders/SC-1234.
+  link  String?
+
+  dedupeKey String? @unique
+  readAt    DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, readAt, createdAt])
+  @@map("notifications")
+}
+
+enum NotificationType {
+  ORDER_PAID
+  ORDER_PAYMENT_FAILED
+  ORDER_LINE_FULFILLED
+  RETURN_APPROVED
+  RETURN_REJECTED
 }
 
 /// At most one shipping label per order — `orderId` is `@unique`, not just

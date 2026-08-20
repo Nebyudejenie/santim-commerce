@@ -13,6 +13,7 @@
 
 import { prisma } from "../db.js";
 import { logger } from "../observability/logger.js";
+import { enqueue } from "../outbox.js";
 
 export class ReturnError extends Error {
   override name = "ReturnError";
@@ -67,9 +68,12 @@ async function applyResolution(
   authorize(request.orderLine);
 
   if (outcome === "REJECTED") {
-    await prisma.returnRequest.update({
-      where: { id: returnRequestId },
-      data: { status: "REJECTED", resolvedByUserId: resolverUserId, resolvedAt: new Date(), resolutionNote: note },
+    await prisma.$transaction(async (tx) => {
+      await tx.returnRequest.update({
+        where: { id: returnRequestId },
+        data: { status: "REJECTED", resolvedByUserId: resolverUserId, resolvedAt: new Date(), resolutionNote: note },
+      });
+      await enqueue(tx, "return.resolved", { returnRequestId });
     });
     logger.info("return.rejected", { returnRequestId, resolverUserId });
     return;
@@ -124,6 +128,8 @@ async function applyResolution(
         // Already reversed — a retried call, not a bug.
       }
     }
+
+    await enqueue(tx, "return.resolved", { returnRequestId });
   });
 
   logger.info("return.approved", { returnRequestId, resolverUserId, orderLineId: request.orderLineId });

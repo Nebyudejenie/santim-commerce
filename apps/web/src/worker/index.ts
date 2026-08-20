@@ -33,6 +33,12 @@ import { registry, reservationsExpiredTotal, stuckPaymentsGauge } from "../serve
 // module comment.
 import { purgeExpiredSessions } from "../server/auth/session-store.js";
 import { createLedgerEntriesForOrder } from "../server/orders/settlement-service.js";
+import {
+  notifyOrderLineFulfilled,
+  notifyOrderPaid,
+  notifyOrderPaymentFailed,
+  notifyReturnResolved,
+} from "../server/notifications/notification-service.js";
 
 const TICK_MS = 5_000;
 const RECONCILE_EVERY_MS = 15 * 60_000;
@@ -220,13 +226,25 @@ async function publishOutbox(): Promise<void> {
  * "order.paid" creates real seller settlement ledger entries — see
  * settlement-service.ts's own module comment on why this runs here (the
  * outbox consumer) and not synchronously inside the payment transaction.
- * Every other topic still just logs — replace with real senders (email,
- * SMS, search reindex) as you build them.
+ * The same reasoning is why customer notifications are created here too,
+ * not synchronously wherever the underlying state change happens — see
+ * notification-service.ts's own module comment. Every notifyX call is
+ * idempotent under this loop's real at-least-once redelivery.
  */
 async function deliver(topic: string, payload: unknown): Promise<void> {
   if (topic === "order.paid") {
     const { orderId } = payload as { orderId: string };
     await createLedgerEntriesForOrder(orderId);
+    await notifyOrderPaid(orderId);
+  } else if (topic === "order.payment_failed") {
+    const { orderId } = payload as { orderId: string };
+    await notifyOrderPaymentFailed(orderId);
+  } else if (topic === "order.line_fulfilled") {
+    const { orderLineId } = payload as { orderLineId: string };
+    await notifyOrderLineFulfilled(orderLineId);
+  } else if (topic === "return.resolved") {
+    const { returnRequestId } = payload as { returnRequestId: string };
+    await notifyReturnResolved(returnRequestId);
   }
   logger.info("outbox.delivered", { topic, payload });
 }

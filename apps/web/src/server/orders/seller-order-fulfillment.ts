@@ -14,6 +14,7 @@
 import { prisma } from "../db.js";
 import { logger } from "../observability/logger.js";
 import { deriveOrderFulfilmentStatus, type LineFulfilmentStatus } from "./fulfilment-aggregate.js";
+import { enqueue } from "../outbox.js";
 
 export class FulfilmentError extends Error {
   override name = "FulfilmentError";
@@ -39,6 +40,13 @@ async function setLineFulfilmentStatus(sellerId: string, orderLineId: string, st
     const derived = deriveOrderFulfilmentStatus(statuses);
 
     await tx.order.update({ where: { id: line.orderId }, data: { fulfilmentStatus: derived } });
+
+    // Side effects (a customer notification) go through the outbox, never
+    // a direct call inside this transaction — see outbox.ts's own comment.
+    // Only on the real "shipped" transition, not the undo path.
+    if (status === "FULFILLED") {
+      await enqueue(tx, "order.line_fulfilled", { orderLineId });
+    }
   });
 
   logger.info("fulfilment.line_status_changed", { orderLineId, sellerId, status });

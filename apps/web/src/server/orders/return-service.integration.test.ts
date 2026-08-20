@@ -131,6 +131,10 @@ test("approving a return restocks inventory, moves the line to RETURNED, and rev
 
   const refundEntry = await prisma.sellerLedgerEntry.findFirstOrThrow({ where: { orderLineId: lineId, type: "REFUND" } });
   assert.equal(refundEntry.amountSantim, -9_000);
+
+  const outboxMessages = await prisma.outboxMessage.findMany({ where: { topic: "return.resolved" } });
+  const forThisRequest = outboxMessages.filter((m) => (m.payload as { returnRequestId: string }).returnRequestId === request.id);
+  assert.equal(forThisRequest.length, 1, "approving a return must enqueue exactly one return.resolved message");
 });
 
 test("a seller CANNOT approve a return on another seller's line, even with the real request id", async () => {
@@ -164,6 +168,10 @@ test("rejecting a return leaves inventory and the order line untouched", async (
 
   const inventory = await prisma.inventory.findUniqueOrThrow({ where: { variantId } });
   assert.equal(inventory.onHand, 5, "a rejected return must not restock anything");
+
+  const outboxMessages = await prisma.outboxMessage.findMany({ where: { topic: "return.resolved" } });
+  const forThisRequest = outboxMessages.filter((m) => (m.payload as { returnRequestId: string }).returnRequestId === request.id);
+  assert.equal(forThisRequest.length, 1, "rejecting a return must also enqueue a real return.resolved message — the customer still needs to be told");
 });
 
 test("an admin can approve a return regardless of which seller owns the line", async () => {
@@ -182,6 +190,7 @@ test("an admin can approve a return regardless of which seller owns the line", a
 });
 
 test.after(async () => {
+  await prisma.outboxMessage.deleteMany({ where: { topic: "return.resolved" } });
   await prisma.returnRequest.deleteMany({ where: { order: { orderNumber: { startsWith: "SC-RETURN" } } } });
   await prisma.sellerLedgerEntry.deleteMany({ where: { order: { orderNumber: { startsWith: "SC-RETURN" } } } });
   await prisma.orderLine.deleteMany({ where: { order: { orderNumber: { startsWith: "SC-RETURN" } } } });

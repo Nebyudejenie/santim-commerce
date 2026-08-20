@@ -27,6 +27,7 @@ import {
 import { prisma, type Tx } from "../db.js";
 import { env, urls } from "../config/env.js";
 import { logger } from "../observability/logger.js";
+import { enqueue } from "../outbox.js";
 import { santimpay } from "./santimpay-client.js";
 import {
   assertOrderTransition,
@@ -480,12 +481,6 @@ async function releaseReservations(tx: Tx, orderId: string): Promise<void> {
       data: { status: "RELEASED" },
     });
   }
-}
-
-/* ============================================================== 5. OUTBOX */
-
-async function enqueue(tx: Tx, topic: string, payload: object): Promise<void> {
-  await tx.outboxMessage.create({ data: { topic, payload: payload as object } });
 }
 
 /* =============================================================== helpers */

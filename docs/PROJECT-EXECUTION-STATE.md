@@ -388,17 +388,40 @@ rather than inventing busywork.
       Verified end-to-end over real HTTP: a real saved address renders on
       both `/account/addresses` and inside the checkout "Deliver to"
       selector; a guest is correctly redirected away from the account page.
-- [ ] **Customer notifications** — confirmed there is no customer-facing
-      notification system of any kind (no email sender, no in-app
-      notification model/UI). The outbox worker only ever handles
-      `order.paid`/`order.payment_failed`, and both just create settlement
-      ledger entries or log — nothing is ever actually sent to a customer
-      when their order is placed, paid, shipped, or their return is
-      resolved. A real email integration needs real provider credentials
-      this environment doesn't have; an in-app notification system (a
-      `Notification` model + inbox UI, populated by extending the existing
-      outbox pattern) would be the honest, buildable version of this. Not
-      yet built.
+- [x] **Customer notifications** — no real email/SMS provider credentials
+      exist in this environment, so this is the in-app version: a new
+      `Notification` model, populated exclusively by the outbox worker (see
+      worker/index.ts's `deliver()`), never synchronously wherever the
+      underlying state change happens — the same reasoning settlement
+      ledger entries already followed. `enqueue()` was extracted out of
+      payment-service.ts (its original, sole caller) into a shared
+      `outbox.ts` so seller-fulfillment and returns could enqueue their own
+      topics without an awkward cross-import into a payment-specific
+      module. Four real events wired end to end: order.paid, order.
+      payment_failed (already enqueued, just never consumed for this
+      before), plus two genuinely new enqueue points added at their real
+      source — `order.line_fulfilled` (seller-order-fulfillment.ts, only on
+      the real "shipped" transition, not the undo path) and
+      `return.resolved` (return-service.ts, both the APPROVED and REJECTED
+      branches — the REJECTED path didn't even have a transaction before
+      this, needed one so the enqueue can't succeed without the state
+      change, or vice versa). Every notifyX function is idempotent via a
+      real `dedupeKey` unique constraint under the outbox's at-least-once
+      redelivery — verified directly by calling the same notify function
+      twice and confirming exactly one row. A guest order (`userId` null)
+      is silently skipped, not an error — there's no account to notify.
+      Verified the topic-string wiring is exactly consistent by directly
+      cross-referencing every `enqueue()` call site's topic/payload-key
+      strings against the worker's dispatch table (all 5 call sites, 4
+      topics, exact match) — the classic stringly-typed risk this pattern
+      creates, checked for real rather than assumed. Bell icon + real
+      unread badge in the site header (signed-in users only), new
+      `/account/notifications` page with mark-read/mark-all-read. 12 new
+      tests (7 notification-service + 5 added to the existing fulfillment/
+      return test files verifying the real outbox message gets enqueued,
+      not just that the underlying state changed). Verified end-to-end over
+      real HTTP: unread badge count and notification content both match
+      real seeded data exactly; a guest sees no bell at all.
 - [ ] **Admin business-metrics dashboard** — confirmed the admin home page
       is real but minimal: 5 ops-health tiles (orders/revenue today, stuck
       payments, expiring reservations) sourced from `getDashboardStats()`,
