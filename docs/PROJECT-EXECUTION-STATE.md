@@ -156,9 +156,20 @@ seller domain existing first)
       order sees the write-a-review form, a non-buyer doesn't, and a
       submitted review appears on the real PDP with the correct
       5.0/1-review aggregate.
-- [ ] **Returns, refunds, disputes** — `OrderStatus` already has
-      REFUNDED/PARTIALLY_REFUNDED; no actual return-request workflow,
-      approval, or dispute resolution exists yet.
+- [x] **Returns, refunds, disputes** (`6b79e96`) — `ReturnRequest`: buyer
+      requests (only for a FULFILLED line), seller approves/rejects on
+      their own lines (ownership-checked), admin can override regardless
+      of seller (dispute escalation). Approval does 3 real things in one
+      transaction: atomic inventory restock, OrderLine → RETURNED (already
+      anticipated by fulfilment-aggregate.ts), and a REFUND ledger entry
+      that exactly cancels the original SALE+COMMISSION net — computed
+      from the real prior entries, not guessed. Same money-movement
+      boundary as settlement: no actual bank transfer back to the
+      customer (unconfirmed SantimPay semantics). 7 new tests including
+      restock+ledger-reversal verified together. Verified end-to-end over
+      real HTTP AND a direct SQL query confirming onHand genuinely went
+      3→4, not just that the app claimed it did. UI: buyer request button,
+      `/sell/returns`, `/admin/returns`.
 - [ ] **Coupons & promotions** — nothing exists yet.
 - [ ] **Search depth** — current search is catalogue browsing only (no
       keyword search implementation was found in Phase 2's earlier audit
