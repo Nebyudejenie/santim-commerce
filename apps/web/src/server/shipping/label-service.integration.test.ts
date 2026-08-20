@@ -102,6 +102,14 @@ test.beforeEach(() => {
 test.after(async () => {
   // Mirrors reservation.integration.test.ts's own cleanup discipline: delete
   // by the same prefix used to generate the data, never a blanket wipe.
+  //
+  // Children before parent: ShippingLabel.order is onDelete: Restrict (see
+  // schema.prisma's comment on why — it's a real, billable carrier
+  // transaction, not disposable), so the database itself now refuses to
+  // delete an Order that still has a label row pointing at it. That's the
+  // guardrail working correctly, not a bug to work around — cleanup just
+  // has to respect the same ordering real code would.
+  await prisma.shippingLabel.deleteMany({ where: { order: { orderNumber: { startsWith: "SC-LBL" } } } });
   await prisma.order.deleteMany({ where: { orderNumber: { startsWith: "SC-LBL" } } });
   await prisma.$disconnect();
 });

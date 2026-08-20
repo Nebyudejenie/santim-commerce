@@ -153,6 +153,11 @@ model InventoryReservation {
 
   @@index([status, expiresAt])
   @@index([orderId])
+  // payment-service.ts queries HELD reservations for a specific order
+  // (orderId + status together) when settling/releasing stock — the plain
+  // orderId index above makes Postgres filter status in a post-scan instead
+  // of using the index for both predicates.
+  @@index([orderId, status])
   @@map("inventory_reservations")
 }
 
@@ -350,6 +355,10 @@ model Order {
   @@index([status, placedAt])
   @@index([userId, placedAt])
   @@index([email])
+  // admin-queries.ts's "paid today" dashboard filters on exactly this pair
+  // (status = PAID, paidAt >= startOfDay) — status+placedAt above doesn't
+  // cover it, placedAt and paidAt are different moments for the same order.
+  @@index([status, paidAt])
   @@map("orders")
 }
 
@@ -372,7 +381,12 @@ enum FulfilmentStatus {
 model OrderLine {
   id        String  @id @default(cuid())
   orderId   String
-  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  // Restrict, not Cascade: "a historical record, not a view" (below) means
+  // deleting the parent Order must never silently take this with it. No
+  // code path deletes an Order today (grep confirms it), so this changes
+  // no current behaviour — it only blocks a future one from doing it by
+  // accident.
+  order     Order   @relation(fields: [orderId], references: [id], onDelete: Restrict)
   variantId String?
   variant   Variant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
 
@@ -395,7 +409,9 @@ model OrderLine {
 model OrderEvent {
   id        String   @id @default(cuid())
   orderId   String
-  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  // Restrict: this is the audit trail itself (see the model doc above) —
+  // deleting the Order it documents must never take the evidence with it.
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Restrict)
   type      String   // "order.placed", "payment.completed", "stock.committed"
   message   String?
   data      Json?
@@ -415,7 +431,10 @@ model OrderEvent {
 model PaymentIntent {
   id      String @id @default(cuid())
   orderId String
-  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  // Restrict: this is the financial record of every attempted charge — the
+  // one thing in this whole schema that must never disappear as a side
+  // effect of deleting something else.
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Restrict)
 
   /// OUR id sent to SantimPay as `id`. THE idempotency key for the payment.
   /// Generated once, persisted BEFORE the outbound call.
@@ -453,6 +472,10 @@ model PaymentIntent {
 
   @@index([status, nextPollAt])
   @@index([orderId])
+  // admin-queries.ts's "stuck payments" dashboard filters/counts on this
+  // exact pair (status IN [...], createdAt < cutoff) — status+nextPollAt
+  // above serves the poller's own query, not this one.
+  @@index([status, createdAt])
   @@map("payment_intents")
 }
 
@@ -530,7 +553,9 @@ model OutboxMessage {
 model ShippingLabel {
   id      String @id @default(cuid())
   orderId String @unique
-  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  // Restrict: a real, billable carrier transaction lives behind this row —
+  // same reasoning as PaymentIntent, deliberately not Cascade.
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Restrict)
 
   /// OUR id, sent to the carrier as ITS idempotency key. Generated once,
   /// persisted before the outbound call — see label-service.ts.
