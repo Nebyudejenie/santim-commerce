@@ -40,7 +40,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
 
       # github.repository preserves this repo's actual owner casing
       # (Nebyudejenie/santim-commerce — capital N), but GHCR, like every

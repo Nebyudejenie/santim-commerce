@@ -145,7 +145,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
 
       # Layer cache keyed on the GitHub Actions cache backend. Without this,
       # every PR rebuilds node_modules from scratch — see the Dockerfile's own
