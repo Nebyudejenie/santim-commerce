@@ -1,14 +1,132 @@
 # Project Execution State
 
-Persistent engineering log for the santim-commerce production-readiness push.
-This file is the resume point if execution is interrupted: read this file,
-check `git log --oneline -15` and `git status`, check `gh pr list --state
-open`, and continue from NEXT ACTION.
+Persistent engineering log for santim-commerce. This file is the resume
+point if execution is interrupted: read this file, check `git log --oneline
+-20` and `git status`, and continue from NEXT ACTION.
 
-Last updated: 2026-08-20, commit `a31a199` on `main` (pushed and confirmed
-== `origin/main`).
+Last updated: 2026-08-20, commit `1864141` on `main` (pushed; CI in flight
+at time of writing — confirm with `gh run list --branch main --limit 1`).
 
-## CURRENT PHASE
+## MANDATE: MULTI-VENDOR MARKETPLACE TRANSFORMATION (current, active)
+
+As of commit `1864141`, the mandate expanded from "harden the existing
+single-vendor payment-integration app for production" (mostly complete —
+see PRODUCTION-READINESS HISTORY below) to "transform this into a
+full-featured multi-vendor marketplace comparable in functional depth to a
+mature platform like eBay" — multi-vendor selling, seller
+verification/reputation, order splitting and per-seller fulfillment,
+commission/settlement, returns/refunds/disputes, richer search, reviews,
+promotions/coupons, buyer-seller messaging, and the admin/observability
+surface to run all of it.
+
+This is genuinely large — realistically many sessions of real engineering,
+not something to fake-complete in one pass (the mandate itself is explicit
+about this: no placeholder workflows, no dead UI, no mock business logic).
+Working through it in dependency order, each slice fully tested and pushed
+before starting the next, tracked here so it survives a context reset.
+
+### Roadmap (dependency order — do not skip ahead of an unchecked item
+without a specific reason, since almost everything below depends on the
+seller domain existing first)
+
+- [x] **Seller domain foundation** (`1864141`) — `Seller` model with a
+      PENDING/APPROVED/SUSPENDED/REJECTED lifecycle; `Product.sellerId` and
+      `OrderLine.sellerId` (snapshotted); `Variant.sku` rescoped to
+      unique-per-product (was globally unique — broke the "two sellers, same
+      SKU" case a real marketplace needs). Seller apply flow (`/sell`) and
+      admin review queue (`/admin/sellers`). Real hand-written
+      expand-backfill-contract migration (8 existing seed products
+      backfilled onto a placeholder "Legacy Catalogue" seller, zero data
+      loss, zero schema drift afterward). Found and fixed an independent,
+      real security gap while building this: no Server Action anywhere in
+      the codebase checked its own authorization (all relied solely on the
+      page/layout rendering their trigger form, which Next.js's own
+      security guidance says is insufficient — Server Actions are
+      independently-invokable endpoints). Fixed the pre-existing
+      `resettlePaymentAction` the same way the new seller actions were
+      built from the start. 8 new tests (6 integration, 2 unit), all
+      passing; 7/7 real HTTP checks against a live server for the full
+      apply→PENDING→approve→APPROVED flow, including page-level
+      authorization (unauthenticated, non-staff).
+- [ ] **Seller listing management** — sellers currently have NO way to
+      create/edit products through the UI at all (only `seed.ts` creates
+      products). This is core, required functionality ("Sellers can create
+      and manage listings"), not an enhancement. Needs: create/edit
+      product+variants forms scoped to `requireApprovedSeller`, draft vs.
+      published status, image upload (check what's currently used for
+      images — seed data uses picsum.photos URLs, real upload doesn't
+      exist yet), seller's own product list view.
+- [ ] **Buyer-facing seller visibility** — product pages and cart/order
+      views don't show which seller you're buying from yet. Needs: seller
+      name/link on PDP and cart lines, a public seller storefront page
+      (`/sellers/[slug]` or similar), seller rating display (depends on
+      reviews, below).
+- [ ] **Order splitting / seller fulfillment** — `OrderLine.sellerId` now
+      exists (this session), but there's no seller-facing "my sold orders"
+      view, no per-seller fulfillment status, no shipment-per-seller
+      concept. Payment collection stays single-PaymentIntent-per-Order
+      (deliberate — see the seller-domain commit's own comment); this is
+      purely a fulfillment/reporting split, not a payment split.
+- [ ] **Commission & settlement ledger** — `Seller.commissionBps` exists
+      but nothing computes a payable amount yet. Needs a real
+      accounting-oriented model (ledger entries, not a mutable balance
+      field — matching this codebase's own "state is an enum, not a
+      boolean" / "every external event is persisted" design philosophy
+      already encoded in schema.prisma's header comment), refund
+      deduction handling, a payout-status concept.
+- [ ] **Reviews & ratings** — product reviews, seller reviews, verified-
+      purchase gating, rating aggregation. Nothing exists yet.
+- [ ] **Returns, refunds, disputes** — `OrderStatus` already has
+      REFUNDED/PARTIALLY_REFUNDED; no actual return-request workflow,
+      approval, or dispute resolution exists yet.
+- [ ] **Coupons & promotions** — nothing exists yet.
+- [ ] **Search depth** — current search is catalogue browsing only (no
+      keyword search implementation was found in Phase 2's earlier audit
+      of this codebase); real marketplace search (filtering, sorting,
+      ranking) is unbuilt.
+- [ ] **Seller reputation metrics** — order completion/cancellation/return
+      rates, response time — needs order and review data flowing first.
+- [ ] **Admin marketplace controls** — extend the existing admin surface
+      (orders, reconciliation, now sellers) to cover the above as they're
+      built: dispute resolution, commission config, promotion management.
+
+### Working discipline for this mandate (carried over from what already
+proved out this session — do not relax these just because the scope grew)
+
+- Every schema change that touches a table with real rows gets a
+  hand-written expand-backfill-contract migration, verified for zero drift
+  afterward (`prisma migrate dev` reporting "already in sync"), not a bare
+  `prisma migrate dev` against non-empty tables.
+- Every new Server Action checks its own authorization — never rely on the
+  page/layout that renders its trigger form.
+- Every new feature gets real tests (unit for pure logic, integration
+  against real Postgres for anything DB-backed) AND, where practical, a
+  real HTTP end-to-end check against a live server — not just "the code
+  looks right."
+- Full regression suite (`pnpm -r typecheck && pnpm -r lint &&
+  pnpm --filter @santim/santimpay test && pnpm --filter @santim/web
+  test:unit && pnpm --filter @santim/web test:integration`) before every
+  commit, real CI watched to a genuinely uncontested completion before the
+  next push (this session already got burned once by pushing too fast and
+  triggering the concurrency-group's `cancel-in-progress` — see
+  PRODUCTION-READINESS HISTORY below).
+- State machines for anything with a lifecycle live in their own pure,
+  zero-import module (see `seller-state-machine.ts` following
+  `orders/state-machine.ts`'s precedent) — required for `test:unit`
+  (plain `node --experimental-strip-types`) to even run them, and it's
+  also just better-tested code.
+
+## PRODUCTION-READINESS HISTORY (prior mandate, mostly complete)
+
+Everything below this line documents the earlier "harden the existing
+single-vendor app for production" effort. It is not obsolete — the CI/CD
+pipeline, security headers, Docker hardening, chaos/load-test evidence,
+and payment-correctness work it describes all still apply directly to the
+marketplace transformation above (a marketplace still needs correct
+payments, security headers, and a working CI pipeline) — but new work
+should be tracked in the ROADMAP above, not appended here.
+
+## CURRENT PHASE (historical — see MANDATE above for active work)
 
 Phase 1 (Repository Sync) — complete. Phase 2 (Repository Audit) — complete,
 two full passes (application-layer: dead code, payments, inventory,
@@ -19,11 +137,17 @@ Integrity) — fixed (FK guardrails, missing indexes). Phase 11 (Security
 Audit) sub-slices — fixed (response security headers, edge rate limiting,
 container hardening). Phase 13 (Chaos Testing) — one real drill executed
 with fresh evidence (checkout transaction atomicity under a killed DB
-connection). Phase 16 (Docker) — fixed (dev-dependency pruning, HEALTHCHECK)
-and validated with a real CI Docker build + Trivy scan. Phase 18 (CI/CD)
+connection). Phase 14 (Observability) — dashboard-vs-metrics drift check
+done, no drift found. Phase 15 (Performance) — 3 real k6 load tests
+executed against a real production build (smoke, ramping browsing spike to
+50 VUs, sustained 12-replica health-probe load) — see LOAD TEST RESULTS
+below; one real, reproduced 503 finding turned out to be my own test-setup
+error (missing env var), not an app bug, confirmed and documented as such.
+Phase 16 (Docker) — fixed (dev-dependency pruning, HEALTHCHECK) and
+validated with a real CI Docker build + Trivy scan. Phase 18 (CI/CD)
 sub-slice (lint) — fixed. Phase 20 (Documentation) — root README added.
-Phases 3, 5–8, 10, 12, 14–15, 17, 19, 21 — not freshly re-walked this pass;
-see NEXT ACTION.
+Phases 3, 5–8, 10, 12, 17, 19, 21 — not freshly re-walked this pass; see
+NEXT ACTION.
 
 ## CURRENT GATE
 
@@ -104,6 +228,41 @@ is being deliberately deferred — see PRODUCTION READINESS STATUS.
     (missing env vars) attempt was found and cleaned from the dev
     database — not an app bug, an artifact of my own first invocation
     crashing before its own cleanup ran.
+15. **Real k6 load tests executed** (k6 v2.2.0 downloaded fresh — not
+    installed by default, per `infra/load-testing/README.md`) against a
+    real `next build`/`next start` production server on port 3100, not
+    `next dev`:
+    - **`smoke.js`**: PASS. 40 requests across all 8 documented public
+      routes, 0% failures, p95=96.43ms (threshold 2000ms).
+    - **`browsing.js`**: PASS. Ramping scenario to 50 concurrent VUs
+      (realistic browse funnel: home→shop→PDP with think-time and
+      drop-off), 1321 real HTTP requests each hitting a real Prisma/
+      Postgres query (no caching layer, by design — see the script's own
+      comment), 0% failures, p95 112–128ms across all three route tiers
+      against a 1200ms threshold (~9x headroom).
+    - **`health-probes.js`**: first run genuinely FAILED —
+      `http_req_failed rate=60%`, all 72 `/api/ready` requests returned
+      503. Investigated instead of dismissed: `curl -v` showed
+      `{"ready":false,"checks":{"config":"fail","database":"ok"}}`, and
+      the server's own structured log showed exactly why:
+      `SANTIMPAY_ENVIRONMENT: Invalid input` — I had started this
+      particular server instance without setting that env var. This is
+      the app's readiness check working *correctly* (refusing to report
+      ready with invalid config, exactly the intended fail-safe
+      behavior), not a bug. Restarted with the complete env var set,
+      re-ran: PASS, 120/120 requests (12 simulated liveness + 12
+      simulated readiness probes/replica, sustained 60s, matching the
+      HPA's real max of 12 replicas), 0% failures, p99 279–314ms against
+      an 800ms threshold. `/api/ready`'s real `SELECT 1` Postgres query
+      held up fine under sustained concurrent load.
+    - **`order-status-polling.js`**: PASS. Generated real fixture data first
+      (`loadtest:seed-orders 200` — 200 disposable `SC-LOADTEST######`
+      orders in a realistic status mix). Ramping to 100 concurrent
+      "confirming payment" pollers, each hitting the same order repeatedly
+      every 3s (matching the real client's actual poll interval) — 2162
+      requests, 0% failures, p95=25.92ms/p99=44.87ms against 300ms/800ms
+      thresholds. All 200 test orders and the fixture file deleted
+      afterward — psql confirmed `DELETE 200`, nothing left behind.
 
 ## AUDIT FINDINGS — full detail
 
@@ -205,6 +364,9 @@ validation against a real cluster, backup/restore) may still surface P1s
 - Real CI Docker build + Trivy vulnerability scan (GitHub runners, real
   network access — this sandbox's Docker daemon has none): both pass.
 - Real chaos drill (`chaos:checkout-atomicity`): PASS — see #14 above.
+- Real k6 load tests (smoke, 50-VU browsing spike, 12-replica sustained
+  health-probe load) against a real production server: all 3 PASS after
+  fixing one test-setup misconfiguration (not an app bug) — see #15 above.
 - kubeconform -strict schema validation, both overlays: 17/17 valid.
 - Every commit's CI run individually confirmed green via `gh run watch`
   with a genuinely uncontested (non-cancelled) result — one earlier watch
@@ -224,9 +386,9 @@ See COMPLETED GATES above for the full list with commit SHAs.
 
 ## LAST COMMIT
 
-`a31a199` — docs: add repository root README. On `main`, pushed, CI
-confirmed running/green (verify final status with `gh run list --branch
-main --limit 1` if resuming).
+`135e03e` — docs: verify Grafana dashboard metric names against real app
+registrations. On `main`, pushed, CI confirmed green (all 4 jobs,
+genuinely uncontested).
 
 ## NEXT ACTION
 
@@ -242,12 +404,12 @@ Phases not yet freshly re-walked with this session's evidence standard:
    duplicate webhook, delayed webhook are not yet freshly re-verified this
    pass, though the underlying webhook dedup mechanism was confirmed at
    the unit-test level in the audit).
-3. **Phase 14/15** — observability: dashboard-vs-metrics drift check now
-   done (all 11 metric names in the Grafana dashboard's PromQL queries
-   confirmed to exactly match real registrations in
-   `apps/web/src/server/observability/metrics.ts` — no drift). Still open:
-   no load test was run this pass despite k6 scripts existing and being
-   reviewed for correctness.
+3. **Phase 15** — load testing now has real evidence for 4 of 5 k6
+   scenarios (smoke, browsing, health-probes, order-status-polling — see
+   #15 above). Only `webhook-burst.js` was not run this pass — it needs
+   `loadtest:seed-webhooks` fixtures and, per its own header comment,
+   fixtures regenerated immediately before each run (they embed signed,
+   time-sensitive payloads).
 4. **Phase 17** — K8s runtime validation: only static (kubeconform) —
    no real cluster was available or provisioned (correctly out of scope
    per the mandate's own Phase 17 guidance).
