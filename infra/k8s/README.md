@@ -28,7 +28,7 @@ kubectl kustomize overlays/staging | kubeconform -strict -summary
 kubectl kustomize overlays/production | kubeconform -strict -summary
 ```
 
-Both render 16/16 valid resources against the real Kubernetes OpenAPI schema — this was
+Both render 17/17 valid resources against the real Kubernetes OpenAPI schema — this was
 actually run, not just claimed; see the top-level project's verification notes.
 
 ## Secrets: what's real here and what isn't

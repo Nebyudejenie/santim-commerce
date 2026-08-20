@@ -4,12 +4,15 @@
 # production — and this Ingress is what makes the HTTPS half of that promise
 # real at the network edge.
 #
-# The webhook path gets its own annotation-free treatment deliberately: no
-# aggressive WAF rule or bot-challenge should ever intercept a SantimPay
-# callback before it reaches the app, where signature verification is the
-# actual, cryptographic authority on whether to trust it (see
-# webhook.ts — a WAF blocking a legitimate signed callback looks identical to
-# a stuck payment from the customer's side).
+# TWO Ingress objects for the same host, not one with two paths, because
+# ingress-nginx's rate-limit annotations (limit-rps/limit-burst-multiplier
+# below) apply to every location generated from a single Ingress *resource*
+# — splitting the resource is what actually scopes the limit to only one
+# path. This is deliberate, not an oversight: application code (see
+# apps/web/src/app/api/orders/[orderNumber]/status/route.ts's own comment)
+# already assumes rate limiting is enforced here, at the edge — this was a
+# real gap where that assumption had no matching implementation. This
+# closes it for every route EXCEPT the webhook path (its own Ingress below).
 # =============================================================================
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -22,6 +25,12 @@ metadata:
     # Webhook deliveries and the checkout hosted-page redirect are not
     # multi-megabyte, but keep this explicit rather than trusting a default.
     nginx.ingress.kubernetes.io/proxy-body-size: 1m
+    # Generous enough for a real shopper (browsing, cart, checkout,
+    # login/register attempts) while still bounding credential-stuffing and
+    # checkout-abuse traffic from a single client. Per client IP, per second,
+    # with bursting allowed up to 5x before requests start getting a 503.
+    nginx.ingress.kubernetes.io/limit-rps: "20"
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "5"
 spec:
   ingressClassName: nginx
   tls:
@@ -33,6 +42,42 @@ spec:
       http:
         paths:
           - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: santim-web
+                port:
+                  name: http
+---
+# The webhook path gets its own Ingress, deliberately unlimited at the edge:
+# no aggressive WAF rule, bot-challenge, or rate limit should ever intercept
+# a SantimPay callback before it reaches the app, where signature
+# verification is the actual, cryptographic authority on whether to trust it
+# (see webhook.ts — a rate limit throttling a legitimate signed callback
+# looks identical to a stuck payment from the customer's side). SantimPay
+# itself, not an anonymous client, is the only real caller of this path.
+# nginx routes the more specific /api/webhooks prefix here ahead of the
+# catch-all / above, regardless of which Ingress object declares it first.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: santim-web-webhooks
+  namespace: santim-commerce
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-production
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: 1m
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - shop.example.et
+      secretName: santim-web-tls
+  rules:
+    - host: shop.example.et
+      http:
+        paths:
+          - path: /api/webhooks
             pathType: Prefix
             backend:
               service:
