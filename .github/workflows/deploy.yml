@@ -38,9 +38,9 @@ jobs:
       digest: ${{ steps.push.outputs.digest }}
       image: ${{ steps.image.outputs.name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
 
       # github.repository preserves this repo's actual owner casing
       # (Nebyudejenie/santim-commerce — capital N), but GHCR, like every
@@ -58,7 +58,7 @@ jobs:
           REPO: ${{ env.REGISTRY }}/${{ github.repository }}
 
       - name: Log in to registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -66,7 +66,7 @@ jobs:
 
       - name: Build and push
         id: push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: infra/docker/Dockerfile
@@ -90,10 +90,10 @@ jobs:
     needs: build-and-push
     environment: production  # requires manual approval if configured as a protected GitHub environment
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Configure cluster access
-        uses: azure/k8s-set-context@v4
+        uses: azure/k8s-set-context@v5
         with:
           method: kubeconfig
           kubeconfig: ${{ secrets.KUBE_CONFIG }}
