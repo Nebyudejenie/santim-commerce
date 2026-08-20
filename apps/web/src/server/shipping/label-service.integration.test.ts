@@ -35,7 +35,11 @@ async function makeOrder(): Promise<string> {
   const suffix = Math.random().toString(36).slice(2, 10);
   const order = await prisma.order.create({
     data: {
-      orderNumber: `SC-LBL${suffix}`.toUpperCase().slice(0, 11),
+      // Not truncated to 11 chars — see reservation.integration.test.ts's
+      // own comment on this exact class of bug, copied here originally and
+      // now fixed in both places: truncating after prefixing destroys most
+      // of the random suffix's actual entropy.
+      orderNumber: `SC-LBL${suffix}`.toUpperCase(),
       email: "label-test@example.et",
       phone: "+251900000000",
       subtotalSantim: 1999,

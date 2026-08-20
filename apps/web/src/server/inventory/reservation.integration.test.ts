@@ -62,7 +62,14 @@ async function makeOrderShell() {
   const suffix = Math.random().toString(36).slice(2, 10);
   const order = await prisma.order.create({
     data: {
-      orderNumber: `SC-TEST${suffix}`.toUpperCase().slice(0, 11),
+      // NOT sliced to 11 chars the way a real order-number.ts value would
+      // be: `SC-TEST` (7 chars) + an 11-char slice left only 4 characters
+      // of real randomness — a ~1.68M keyspace that a few hundred orders
+      // per run, across many CI runs, can actually collide in (confirmed
+      // for real: this exact collision failed a live CI run, on
+      // "orders_orderNumber_key", nothing to do with whatever else that
+      // run was testing). Keep the full random suffix instead.
+      orderNumber: `SC-TEST${suffix}`.toUpperCase(),
       email: "race@example.et",
       phone: "+251900000000",
       subtotalSantim: 1999,

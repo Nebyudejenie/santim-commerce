@@ -259,15 +259,40 @@ real memory pressure, `Burstable` pods are evicted before `Guaranteed` ones and 
 ones — worth knowing precisely if a future capacity incident ever needs explaining, rather than
 discovering the eviction ordering for the first time during the incident itself.
 
-**What's real here, and what isn't, worth being precise about both:** requests/limits (above) and
-`PodDisruptionBudget` (§7 below) are both real, reasoned, present in this codebase. Affinity rules,
-taints/tolerations, and topology spread constraints are not present anywhere in `infra/k8s/` —
-a genuine, current gap, not a decision documented anywhere the way the CPU-limit omission is. With
-`replicas: 3` (web) and no topology spread constraint, nothing here currently guarantees those
-three pods land on different nodes at all — a single node failure could, in the worst case, take
-out more than one replica simultaneously, undermining exactly the availability the `PodDisruptionBudget`
-below is designed to protect during a *voluntary* disruption. Voluntary and involuntary disruption
-are different problems, and this project has only solved one of them so far.
+**What's real here, and what isn't, worth being precise about both:** requests/limits (above),
+`PodDisruptionBudget` (§7 below), and — easy to miss on a skim, and missed in an earlier draft of
+this exact document — a real `topologySpreadConstraint` on `santim-web` are all present:
+
+```yaml
+# Spread replicas across nodes/zones — three replicas on one node is
+# one node failure away from being one replica.
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: santim-web
+```
+
+**The detail worth being exact about, because it changes what this constraint actually
+guarantees:** `whenUnsatisfiable: ScheduleAnyway` makes this a *soft* constraint. The scheduler
+*prefers* to keep the replica-count skew between any two zones at 1 or less, but will still
+schedule a pod even when it can't satisfy that preference, rather than leaving it `Pending`
+forever. The alternative, `DoNotSchedule`, would make it a *hard* requirement — refusing to
+schedule at all rather than violate the skew, at the real cost of a pod that might stay
+unschedulable (and therefore unable to serve any traffic) if the cluster's actual zone topology
+genuinely can't satisfy it. `ScheduleAnyway` trades away the guarantee in favor of availability —
+which means a small or unevenly-sized real cluster *could* still end up with two of three replicas
+landing in the same zone, and this constraint alone wouldn't stop it. That gap — a *soft*
+constraint's own limit, not a total absence of one — is what §7's `PodDisruptionBudget` doesn't
+close either, since a PDB only governs *voluntary* disruption (a drain, an upgrade), never which
+zone the scheduler happened to place a pod in during an *involuntary* one (a node just dying).
+
+Affinity rules and taints/tolerations, by contrast, genuinely are absent — grep `infra/k8s/` for
+either and there's nothing there. Voluntary disruption (§7) is solved. A *soft* guarantee against
+correlated placement exists. A *hard* one does not, and neither does anything using taints to
+dedicate specific nodes to specific workloads (which this project has no stated need for anyway).
 
 ---
 
@@ -492,14 +517,18 @@ an explicit CPU limit equal to the CPU request, redeploy, and confirm the QoS cl
 `Guaranteed` — then discuss, in your own words, why the original comment argues *against* making
 that change permanently for this specific workload.
 
-### Lab 8.4 — Close the topology-spread gap §6 found
+### Lab 8.4 — Test the actual guarantee `ScheduleAnyway` gives you (and what `DoNotSchedule` costs)
 
-Add a `topologySpreadConstraint` (or pod anti-affinity, and compare the two approaches) to
-`deployment-web.yaml` so its three replicas are spread across distinct nodes rather than
-potentially co-located. Verify with `kubectl get pods -o wide` that they land on different nodes.
-Re-run Lab 8.1's drain exercise against a *single* node hosting what would previously have been
-two of the three replicas, and confirm the blast radius of one node failure is now provably smaller
-than before this constraint existed.
+Against a real cluster with fewer distinct zones than `santim-web` has replicas (a `kind` cluster
+with all nodes unlabeled for `topology.kubernetes.io/zone`, or a real cluster genuinely that
+small), deploy and confirm whether the existing `topologySpreadConstraint` actually keeps replicas
+apart or not — `ScheduleAnyway` means it might not, and §6 predicts exactly when. Then change
+`whenUnsatisfiable` to `DoNotSchedule` and redeploy: watch a replica that can't satisfy the skew
+sit `Pending` instead of landing somewhere anyway. Run Lab 8.1's drain exercise under both
+settings and compare: does the *soft* constraint's occasional failure to spread replicas actually
+cost you anything in practice, or does `ScheduleAnyway`'s bias toward "scheduled, even if
+imperfectly placed" turn out to be the right tradeoff for this specific system? Write down your
+answer with the actual observed behavior as evidence, not just a preference.
 
 ---
 
@@ -526,12 +555,13 @@ than before this constraint existed.
    `Guaranteed` requires every resource's request to equal its limit, which isn't true here for
    either resource; `BestEffort` requires no requests or limits at all, which also isn't true —
    anything that's neither of those two exact conditions is `Burstable` by elimination.)
-5. **Name the one real, current gap in this phase that isn't a reasoned "not yet" the way the
-   service mesh or Helm are — something that's simply missing.** (No topology spread constraints
-   or affinity rules anywhere in `infra/k8s/` — with three `santim-web` replicas and nothing
-   preventing them from landing on the same node, a single node failure could take out more than
-   one replica at once, which is a different failure mode than the *voluntary* disruption the PDB
-   already protects against.)
+5. **`santim-web` has a real `topologySpreadConstraint`. Name the one thing it does NOT guarantee,
+   and what's genuinely absent instead — not the same answer.** (It does not *guarantee* replicas
+   land in different zones, because `whenUnsatisfiable: ScheduleAnyway` is a soft preference, not
+   a hard requirement — a small or unevenly-sized cluster could still violate it. What's genuinely
+   absent, not just soft, is affinity rules and taints/tolerations — grep `infra/k8s/` for either
+   and there's nothing there. Two different, easy-to-conflate answers: a soft guarantee that
+   exists but can be violated, versus a mechanism that doesn't exist at all.)
 
 ---
 
