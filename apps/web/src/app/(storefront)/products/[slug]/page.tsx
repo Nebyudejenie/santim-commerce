@@ -1,4 +1,5 @@
 import Image from "next/image";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { getProductBySlug, totalAvailable } from "@/server/catalogue/catalogue-service";
@@ -56,6 +57,9 @@ export default async function ProductPage({ params }: Props) {
         {product.brand && <p className="pdp__eyebrow">{product.brand}</p>}
         <h1 className="pdp__title">{product.title}</h1>
         {product.subtitle && <p className="pdp__subtitle">{product.subtitle}</p>}
+        <p style={{ fontSize: "var(--text-sm)", color: "var(--fg-muted)", marginBottom: "var(--space-4)" }}>
+          Sold by <Link href={`/sellers/${product.seller.slug}`}>{product.seller.storeName}</Link>
+        </p>
 
         {variants.length > 0 ? (
           <AddToCartForm variants={variants} />

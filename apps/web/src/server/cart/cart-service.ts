@@ -85,10 +85,15 @@ export async function addLine(input: AddLineInput) {
 
   const variant = await prisma.variant.findUnique({
     where: { id: input.variantId },
-    include: { product: true },
+    include: { product: { include: { seller: true } } },
   });
 
-  if (!variant || !variant.active || variant.product.status !== "ACTIVE") {
+  if (
+    !variant ||
+    !variant.active ||
+    variant.product.status !== "ACTIVE" ||
+    variant.product.seller.status !== "APPROVED"
+  ) {
     throw new VariantUnavailableError(input.variantId);
   }
 

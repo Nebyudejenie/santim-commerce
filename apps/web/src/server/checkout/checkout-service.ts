@@ -94,7 +94,9 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
 
   const cart = await prisma.cart.findUnique({
     where: { token: input.cartToken },
-    include: { lines: { include: { variant: { include: { product: true, inventory: true } } } } },
+    include: {
+      lines: { include: { variant: { include: { product: { include: { seller: true } }, inventory: true } } } },
+    },
   });
 
   if (!cart || cart.status !== "ACTIVE" || cart.lines.length === 0) {
@@ -108,7 +110,15 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
   }
 
   for (const line of cart.lines) {
-    if (!line.variant.active || line.variant.product.status !== "ACTIVE") {
+    // Re-checked here, not just at add-to-cart: a seller can be suspended
+    // (or a listing unpublished) in the window between "added to cart" and
+    // "checkout" — the master mandate's own "seller becomes unavailable"
+    // edge case. Same reasoning as the price-change re-check just above.
+    if (
+      !line.variant.active ||
+      line.variant.product.status !== "ACTIVE" ||
+      line.variant.product.seller.status !== "APPROVED"
+    ) {
       throw new CheckoutError(`"${line.variant.title}" is no longer available`);
     }
   }
