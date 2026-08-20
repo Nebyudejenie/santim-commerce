@@ -48,25 +48,73 @@ seller domain existing first)
       passing; 7/7 real HTTP checks against a live server for the full
       apply→PENDING→approve→APPROVED flow, including page-level
       authorization (unauthenticated, non-staff).
-- [ ] **Seller listing management** — sellers currently have NO way to
-      create/edit products through the UI at all (only `seed.ts` creates
-      products). This is core, required functionality ("Sellers can create
-      and manage listings"), not an enhancement. Needs: create/edit
-      product+variants forms scoped to `requireApprovedSeller`, draft vs.
-      published status, image upload (check what's currently used for
-      images — seed data uses picsum.photos URLs, real upload doesn't
-      exist yet), seller's own product list view.
-- [ ] **Buyer-facing seller visibility** — product pages and cart/order
-      views don't show which seller you're buying from yet. Needs: seller
-      name/link on PDP and cart lines, a public seller storefront page
-      (`/sellers/[slug]` or similar), seller rating display (depends on
-      reviews, below).
-- [ ] **Order splitting / seller fulfillment** — `OrderLine.sellerId` now
-      exists (this session), but there's no seller-facing "my sold orders"
-      view, no per-seller fulfillment status, no shipment-per-seller
-      concept. Payment collection stays single-PaymentIntent-per-Order
-      (deliberate — see the seller-domain commit's own comment); this is
-      purely a fulfillment/reporting split, not a payment split.
+- [x] **Seller listing management** (`7dd3210`) — `listing-service.ts`:
+      createProduct (DRAFT + first variant + real inventory, one
+      transaction), updateProduct, setProductStatus (DRAFT→ACTIVE→ARCHIVED
+      →ACTIVE, publish requires ≥1 variant), addVariant, updateVariant.
+      Every function's authorization: returns null / throws exactly as if
+      the resource didn't exist for a non-owning seller (never
+      forbidden-vs-not-found). UI: `/sell/products` (list),
+      `/sell/products/new`, `/sell/products/[id]` (edit + publish +
+      variant table). Images are URL-entry only (no upload pipeline built
+      — a deliberate, documented v1 simplification, see NEXT ACTION).
+      6 new integration tests including the adversarial cross-seller case
+      (a seller cannot edit/publish/add-variant-to another seller's
+      listing, verified against a real DB with zero side effects from the
+      rejected calls). 7/7 real HTTP checks: create→still-invisible-as-
+      DRAFT→cross-seller-404→publish→now-visible-on-PDP-and-shop.
+- [x] **Buyer-facing seller visibility** (`5602fbb`) — "Sold by {store}"
+      on the PDP, linking to a new public `/sellers/[slug]` storefront
+      (APPROVED sellers only, their real ACTIVE products). Building this
+      surfaced a real gap it then fixed: catalogue/cart/checkout only
+      checked `product.status === ACTIVE`, never `seller.status ===
+      APPROVED` — a suspended seller's listings would have stayed fully
+      browsable, addable-to-cart, and purchasable (the mandate's own
+      "seller becomes unavailable" edge case, section 5/19). Fixed at all
+      three layers: browse (`VISIBLE_PRODUCT_WHERE`), add-to-cart
+      (`addLine`), and checkout (`placeOrder`'s existing price-recheck
+      pattern, extended). `checkout-service.ts` had ZERO dedicated tests
+      before this — added a real integration test for the new gate
+      specifically (full happy-path-through-real-payment was deliberately
+      not attempted — no gateway mock exists in this suite, and a real
+      outbound call with fake credentials doesn't belong in a test; see
+      the test file's own comment). 8/8 real HTTP checks including a
+      full pre/post-suspension visibility sweep across PDP, storefront,
+      and shop listing.
+- [~] **Order splitting / seller fulfillment** — read side done
+      (`listSellerOrderLines`/`getSellerOrderDetail` in
+      `seller-order-queries.ts`, `/sell/orders` + `/sell/orders/
+      [orderNumber]`; only PAID/REFUNDED/PARTIALLY_REFUNDED orders shown —
+      a seller finding out before payment clears is a false signal, not
+      useful information; verified via real ownership-isolation tests, a
+      seller cannot see another seller's order even with the real
+      orderNumber). Still missing: per-seller fulfillment STATUS —
+      `Order.fulfilmentStatus` is one field on the whole Order, which is
+      wrong for a genuinely multi-seller order (seller A can ship their
+      item while seller B hasn't; today there's no way to represent that).
+      Needs either an `OrderLine.fulfilmentStatus` field or a proper
+      `Fulfillment`/shipment-per-seller model — a real schema decision, not
+      done yet. Payment collection stays single-PaymentIntent-per-Order
+      (deliberate — see the seller-domain commit's own comment); this
+      remains purely a fulfillment/reporting split, not a payment split.
+      **Also found and fixed a severe, unrelated bug while building this**:
+      building the sold-order detail page (which renders product images)
+      surfaced that `next/image`'s `remotePatterns` allowlist only ever
+      covered `picsum.photos` — meaning ANY product with a seller-supplied
+      image from a different host (which `listing-service.ts`'s own
+      "paste a link you already host" feature explicitly invites) 500'd
+      the ENTIRE page, not just the image, for every visitor. Confirmed for
+      real (created a product with a `example.com` image URL, hit its PDP,
+      got a real 500 with Next's own `next-image-unconfigured-host`
+      error). Fixed properly, not by loosening the allowlist (arbitrary
+      remote hosts through next/image's own proxy is a real SSRF/cost-
+      abuse surface): a new shared `<ProductImage>` component using a
+      plain `<img>` for every seller-controlled image site (PDP gallery,
+      ProductCard, cart lines, account order detail, seller sold-order
+      detail — 5 sites) — admin/seed-controlled images (home page hero,
+      collection tiles) were confirmed NOT seller-editable and correctly
+      left on `next/image`. Re-verified the exact same previously-500ing
+      product now returns 200 with a real `<img>` tag in the response.
 - [ ] **Commission & settlement ledger** — `Seller.commissionBps` exists
       but nothing computes a payable amount yet. Needs a real
       accounting-oriented model (ledger entries, not a mutable balance
