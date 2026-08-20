@@ -9,7 +9,7 @@
 
 import { prisma } from "../db.js";
 
-const ACTIVE_VARIANT_WITH_STOCK = {
+export const ACTIVE_VARIANT_WITH_STOCK = {
   where: { active: true },
   orderBy: { position: "asc" as const },
   include: { inventory: true },
@@ -25,7 +25,7 @@ const ACTIVE_VARIANT_WITH_STOCK = {
  * time respectively, for the window between "seen while browsing" and
  * "acted on".
  */
-const VISIBLE_PRODUCT_WHERE = { status: "ACTIVE" as const, seller: { status: "APPROVED" as const } };
+export const VISIBLE_PRODUCT_WHERE = { status: "ACTIVE" as const, seller: { status: "APPROVED" as const } };
 
 export async function listFeaturedProducts(take = 4) {
   return prisma.product.findMany({

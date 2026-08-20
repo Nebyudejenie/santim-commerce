@@ -202,10 +202,33 @@ seller domain existing first)
       guard). Verified end-to-end over real HTTP: coupon field present only
       when signed in, absent for guests, admin page correctly gated and
       showing a real seeded coupon; a non-admin is redirected away.
-- [ ] **Search depth** — current search is catalogue browsing only (no
-      keyword search implementation was found in Phase 2's earlier audit
-      of this codebase); real marketplace search (filtering, sorting,
-      ranking) is unbuilt.
+- [x] **Search depth** — real Postgres full-text search, not a `title ILIKE
+      '%...%'` scan. `Product.searchVector` is a hand-written (Prisma has no
+      DSL for it) `GENERATED ALWAYS AS ... STORED` tsvector, weighted
+      title(A)/brand+subtitle(B)/description(C), GIN-indexed; ranked via
+      `ts_rank`. Typo tolerance via a `pg_trgm` GIN index on title —
+      similarity fallback kicks in when a full-text match misses (verified:
+      "essentail" / "Corduroy Jaket" still find the real product). A small,
+      honestly-scoped synonym layer (`synonym-expansion.ts`, pure/unit-
+      tested) rewrites a query that exactly matches a curated term into a
+      `websearch_to_tsquery`-compatible `OR` group — not a claim of general
+      synonym support. Faceted filtering (brand, price range) and sorting
+      (relevance/newest/price) via safely-parameterized `Prisma.sql`
+      fragments (never string-concatenated), real pagination via
+      `COUNT(*) OVER()`. Same visibility rule as every other catalogue read
+      (VISIBLE_PRODUCT_WHERE, now exported from catalogue-service.ts and
+      reused, not re-implemented) — verified directly: a suspended seller's
+      product and a DRAFT listing never surface through search OR
+      autocomplete even on a perfect keyword match. Autocomplete is a plain
+      callable Server Action (not a form action), debounced client-side.
+      UI: search bar + dropdown in the site header, `/search` results page
+      with brand/price/sort facets as real backend-driven links (bookmark-
+      able, works without JS). 15 new tests (5 pure synonym-expansion unit
+      tests, 10 search-service integration tests including the suspended-
+      seller-leak and typo-tolerance cases) — all passing against real
+      Postgres. Verified end-to-end over real HTTP: keyword search, typo
+      search, brand filter, price filter all return the exact same counts
+      the service layer computed directly.
 - [ ] **Seller reputation metrics** — order completion/cancellation/return
       rates, response time — needs order and review data flowing first.
 - [ ] **Admin marketplace controls** — extend the existing admin surface

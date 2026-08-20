@@ -186,8 +186,19 @@ model Product {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  /// Postgres GENERATED ALWAYS AS ... STORED tsvector — Prisma's schema DSL
+  /// and migration diff engine have no representation for generated
+  /// columns, so this field exists only for documentation/introspection.
+  /// The real column, its trigger-free generation expression, and its GIN
+  /// index are hand-written SQL — see migration
+  /// 20260820134234_add_product_search_vector and search-service.ts, which
+  /// is the only code that ever touches it (via $queryRaw; Unsupported
+  /// fields are excluded from the generated Prisma Client entirely).
+  searchVector Unsupported("tsvector")?
+
   @@index([status, featured])
   @@index([sellerId, status])
+  @@index([brand])
   @@map("products")
 }
 

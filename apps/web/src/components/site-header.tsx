@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getCartItemCount } from "@/server/cart/get-cart-summary";
 import { getSessionUser } from "@/server/auth/session";
+import { SearchBar } from "./search-bar";
 
 export async function SiteHeader() {
   const [count, user] = await Promise.all([getCartItemCount(), getSessionUser()]);
@@ -20,6 +21,8 @@ export async function SiteHeader() {
         </nav>
 
         <div className="site-header__actions">
+          <SearchBar />
+
           <Link href={user ? "/account" : "/login"} className="site-header__account" aria-label={user ? "Your account" : "Sign in"}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <circle cx="12" cy="8" r="3.5" stroke="currentColor" strokeWidth="1.6" />
