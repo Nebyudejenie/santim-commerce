@@ -5,6 +5,7 @@ import { getSellerOrderDetail } from "@/server/orders/seller-order-queries";
 import { StatusPill } from "@/components/status-pill";
 import { Money } from "@/components/money";
 import { ProductImage } from "@/components/product-image";
+import { FulfilmentToggle } from "@/components/fulfilment-toggle";
 
 export const dynamic = "force-dynamic";
 
@@ -61,6 +62,10 @@ export default async function SellerOrderDetailPage({ params }: Props) {
             <p className="cart-line__variant">
               {line.variantTitle} &times; {line.quantity} · {line.sku}
             </p>
+            <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", marginTop: "var(--space-2)" }}>
+              <StatusPill status={line.fulfilmentStatus} />
+              <FulfilmentToggle orderLineId={line.id} orderNumber={order.orderNumber} status={line.fulfilmentStatus} />
+            </div>
           </div>
           <p className="cart-line__total">
             <Money santim={line.lineTotalSantim} />

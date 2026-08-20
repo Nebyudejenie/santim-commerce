@@ -483,6 +483,15 @@ model OrderLine {
   quantity        Int
   lineTotalSantim Int
 
+  /// Per-LINE fulfilment, not just Order.fulfilmentStatus — a multi-seller
+  /// order needs this: seller A can ship their item while seller B hasn't,
+  /// and a single Order-level field cannot represent that. Order's own
+  /// fulfilmentStatus is now a DERIVED aggregate of its lines (see
+  /// seller-order-fulfillment.ts) — not a second source of truth to keep
+  /// in sync by hand.
+  fulfilmentStatus FulfilmentStatus @default(UNFULFILLED)
+  fulfilledAt       DateTime?
+
   createdAt DateTime @default(now())
 
   @@index([orderId])
