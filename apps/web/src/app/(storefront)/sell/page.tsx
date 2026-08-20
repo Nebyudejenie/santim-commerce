@@ -36,9 +36,14 @@ export default async function SellPage() {
               </p>
             )}
             {seller.status === "APPROVED" && (
-              <Link href="/sell/products" className="btn btn--primary btn--full" style={{ marginTop: "var(--space-5)" }}>
-                Go to your listings
-              </Link>
+              <div style={{ display: "flex", gap: "var(--space-3)", marginTop: "var(--space-5)" }}>
+                <Link href="/sell/products" className="btn btn--primary" style={{ flex: 1 }}>
+                  Your listings
+                </Link>
+                <Link href="/sell/orders" className="btn btn--secondary" style={{ flex: 1 }}>
+                  Your sales
+                </Link>
+              </div>
             )}
           </>
         ) : (

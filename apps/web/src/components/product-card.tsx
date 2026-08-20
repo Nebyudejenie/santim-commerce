@@ -1,6 +1,6 @@
-import Image from "next/image";
 import Link from "next/link";
 import { Money } from "./money";
+import { ProductImage } from "./product-image";
 import { fromPriceSantim, totalAvailable } from "@/server/catalogue/catalogue-service";
 
 export interface ProductCardData {
@@ -27,12 +27,11 @@ export function ProductCard({ product, index = 0 }: { product: ProductCardData; 
     >
       <div className="product-card__media">
         {image && (
-          <Image
+          <ProductImage
             src={image.url}
             alt={image.alt}
             width={image.width ?? 800}
             height={image.height ?? 1000}
-            sizes="(min-width: 1024px) 25vw, (min-width: 640px) 45vw, 90vw"
             className="product-card__image"
           />
         )}

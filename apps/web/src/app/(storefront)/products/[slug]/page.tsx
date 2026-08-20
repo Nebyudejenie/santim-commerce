@@ -1,9 +1,9 @@
-import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { getProductBySlug, totalAvailable } from "@/server/catalogue/catalogue-service";
 import { AddToCartForm, type VariantOption } from "@/components/add-to-cart-form";
+import { ProductImage } from "@/components/product-image";
 
 interface Props {
   params: Promise<{ slug: string }>;
@@ -38,12 +38,11 @@ export default async function ProductPage({ params }: Props) {
         {product.images.length > 0 ? (
           product.images.map((image) => (
             <div key={image.id} className="pdp__gallery-image">
-              <Image
+              <ProductImage
                 src={image.url}
                 alt={image.alt}
                 width={image.width ?? 1200}
                 height={image.height ?? 1500}
-                sizes="(min-width: 900px) 50vw, 100vw"
                 priority
               />
             </div>

@@ -1,11 +1,11 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import Image from "next/image";
 import Link from "next/link";
 import { requireUser } from "@/server/auth/guard";
 import { getOrderForUser } from "@/server/orders/get-user-orders";
 import { Money } from "@/components/money";
 import { StatusPill } from "@/components/status-pill";
+import { ProductImage } from "@/components/product-image";
 
 export const metadata: Metadata = { title: "Order details" };
 export const dynamic = "force-dynamic";
@@ -43,7 +43,7 @@ export default async function AccountOrderDetailPage({ params }: Props) {
       {order.lines.map((line) => (
         <div key={line.id} className="cart-line">
           <div className="cart-line__image">
-            {line.imageUrl && <Image src={line.imageUrl} alt={line.productTitle} width={88} height={110} />}
+            {line.imageUrl && <ProductImage src={line.imageUrl} alt={line.productTitle} width={88} height={110} />}
           </div>
           <div>
             <p className="cart-line__title">{line.productTitle}</p>

@@ -1,9 +1,9 @@
-import Image from "next/image";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { getCartDetail } from "@/server/cart/get-cart-detail";
 import { decrementLineAction, incrementLineAction, removeLineAction } from "@/server/actions/cart-actions";
 import { Money } from "@/components/money";
+import { ProductImage } from "@/components/product-image";
 
 export const metadata: Metadata = { title: "Your bag" };
 
@@ -44,7 +44,7 @@ export default async function CartPage() {
           {cart.lines.map((line) => (
             <li key={line.variantId} className="cart-line">
               <div className="cart-line__image">
-                {line.image && <Image src={line.image} alt={line.productTitle} width={88} height={110} />}
+                {line.image && <ProductImage src={line.image} alt={line.productTitle} width={88} height={110} />}
               </div>
 
               <div>
