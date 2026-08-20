@@ -180,6 +180,8 @@
 .status-pill--failed, .status-pill--declined, .status-pill--cancelled { background: var(--danger-bg); color: var(--danger); }
 .status-pill--expired { background: var(--danger-bg); color: var(--danger); }
 .status-pill--refunded, .status-pill--partially_refunded { background: var(--bg-subtle); color: var(--fg-muted); }
+.status-pill--approved { background: var(--success-bg); color: var(--success); }
+.status-pill--suspended, .status-pill--rejected { background: var(--danger-bg); color: var(--danger); }
 
 .filter-bar { display: flex; gap: var(--space-3); margin-bottom: var(--space-5); flex-wrap: wrap; }
 .filter-bar input, .filter-bar select {

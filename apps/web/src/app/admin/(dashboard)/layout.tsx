@@ -20,6 +20,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         <nav>
           <Link href="/admin">Dashboard</Link>
           <Link href="/admin/orders">Orders</Link>
+          <Link href="/admin/sellers">Sellers</Link>
           <Link href="/admin/reconciliation">Reconciliation</Link>
         </nav>
         <div className="admin-sidebar__user">

@@ -34,10 +34,35 @@ import { InsufficientStockError, reserveForOrder } from "./reservation.ts";
 
 const prisma = new PrismaClient();
 
+/// Every Product now needs a Seller (see schema.prisma's own comment on
+/// why) — one shared test seller for the whole file, created lazily and
+/// idempotently (upsert, same discipline as seed.ts/create-admin.ts), not
+/// one per variant: this test creates dozens of products per run, and a
+/// fresh Seller per product would be pure noise, not signal.
+let testSellerId: string | undefined;
+
+async function getOrCreateTestSeller(): Promise<string> {
+  if (testSellerId) return testSellerId;
+  const owner = await prisma.user.upsert({
+    where: { email: "race-test-seller@example.et" },
+    update: {},
+    create: { email: "race-test-seller@example.et", role: "CUSTOMER" },
+  });
+  const seller = await prisma.seller.upsert({
+    where: { ownerId: owner.id },
+    update: {},
+    create: { ownerId: owner.id, storeName: "Race Test Seller", slug: "race-test-seller", status: "APPROVED" },
+  });
+  testSellerId = seller.id;
+  return testSellerId;
+}
+
 async function makeVariant(onHand: number, allowBackorder = false) {
   const suffix = Math.random().toString(36).slice(2, 10);
+  const sellerId = await getOrCreateTestSeller();
   const product = await prisma.product.create({
     data: {
+      sellerId,
       slug: `race-test-${suffix}`,
       title: "Race Test Product",
       description: "created by reservation.integration.test.ts",
@@ -191,5 +216,9 @@ test.after(async () => {
   // reservation via the schema's onDelete: Cascade.
   await prisma.product.deleteMany({ where: { slug: { startsWith: "race-test-" } } });
   await prisma.order.deleteMany({ where: { orderNumber: { startsWith: "SC-TEST" } } });
+  // Only safe now that every race-test Product (the last thing referencing
+  // this Seller via onDelete: Restrict) is gone.
+  await prisma.seller.deleteMany({ where: { slug: "race-test-seller" } });
+  await prisma.user.deleteMany({ where: { email: "race-test-seller@example.et" } });
   await prisma.$disconnect();
 });

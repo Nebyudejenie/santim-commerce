@@ -638,9 +638,12 @@
 .status-pill--pending_payment { background: #fbead2; color: #915b0d; }
 .status-pill--failed, .status-pill--cancelled { background: var(--danger-bg); color: var(--danger); }
 .status-pill--refunded, .status-pill--partially_refunded, .status-pill--unfulfilled,
-.status-pill--fulfilled, .status-pill--partially_fulfilled, .status-pill--returned {
+.status-pill--fulfilled, .status-pill--partially_fulfilled, .status-pill--returned,
+.status-pill--pending {
   background: var(--bg-subtle); color: var(--fg-muted);
 }
+.status-pill--approved { background: var(--success-bg); color: var(--success); }
+.status-pill--suspended, .status-pill--rejected { background: var(--danger-bg); color: var(--danger); }
 
 .alert {
   padding: var(--space-4);

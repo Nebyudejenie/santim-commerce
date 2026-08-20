@@ -26,10 +26,76 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// -------------------------------------------------------------------- sellers
+//
+// A marketplace, not a single-merchant shop: every Product belongs to
+// exactly one Seller (see Product.sellerId below). Payment collection stays
+// entirely unchanged — PaymentIntent is still one-per-Order against the
+// platform's own SantimPay merchant account (a buyer never pays N different
+// sellers directly; that's not how any real marketplace's payment flow
+// works, SantimPay included). The seller split happens downstream, at
+// fulfillment (OrderLine.sellerId) and at settlement (a seller's payable
+// amount is computed from their OrderLines, not collected directly) — see
+// docs/PROJECT-EXECUTION-STATE.md for the settlement-ledger work this
+// foundation still needs.
+
+model Seller {
+  id      String @id @default(cuid())
+  /// One store per user in v1 — deliberately simple. A user who wants a
+  /// second store needs a second account, the same tradeoff most real
+  /// marketplaces start with before building account-linking later.
+  ownerId String @unique
+  owner   User   @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+
+  storeName   String
+  slug        String  @unique
+  description String? @db.Text
+  logoUrl     String?
+
+  status SellerStatus @default(PENDING)
+  /// Audit trail for the verification/KYC decision — who and when, not just
+  /// what. `reviewedBy` is a User.id stored as a plain string, not a
+  /// relation: the reviewing admin's account outliving every seller they
+  /// ever reviewed is not a constraint worth enforcing at the database
+  /// level (same reasoning as OrderEvent.actor).
+  reviewedAt      DateTime?
+  reviewedBy      String?
+  rejectionReason String?
+
+  /// Marketplace commission on this seller's completed sales, in basis
+  /// points (1000 = 10.00%). Per-seller, not global, because negotiated
+  /// commission rates are a real, common marketplace feature — see
+  /// Phase 8's settlement design.
+  commissionBps Int @default(1000)
+
+  products   Product[]
+  orderLines OrderLine[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@map("sellers")
+}
+
+enum SellerStatus {
+  /// Applied, awaiting admin review. Cannot list products yet.
+  PENDING
+  /// Reviewed and approved. Can list and sell.
+  APPROVED
+  /// Was approved, now blocked (policy violation, dispute rate, etc.) —
+  /// existing listings hidden, no new sales, but history/payouts intact.
+  SUSPENDED
+  /// Reviewed and declined. Distinct from SUSPENDED: never actually sold.
+  REJECTED
+}
+
 // ----------------------------------------------------------------- catalogue
 
 model Product {
   id          String   @id @default(cuid())
+  sellerId    String
+  seller      Seller   @relation(fields: [sellerId], references: [id], onDelete: Restrict)
   slug        String   @unique
   title       String
   subtitle    String?
@@ -52,6 +118,7 @@ model Product {
   updatedAt DateTime @updatedAt
 
   @@index([status, featured])
+  @@index([sellerId, status])
   @@map("products")
 }
 
@@ -83,7 +150,11 @@ model Variant {
   productId String
   product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
-  sku       String  @unique
+  /// Unique per product, not globally — SKUs are a seller's own internal
+  /// scheme (Product belongs to exactly one Seller), and two different
+  /// sellers reusing "BLK-M" for their own unrelated items is normal, not
+  /// a collision. See the @@unique below.
+  sku       String
   title     String  // "Black / 42"
   /// Selected options as {"Colour":"Black","Size":"42"} — kept denormalised
   /// for display; the authoritative option data is in VariantOption.
@@ -109,6 +180,7 @@ model Variant {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([productId, sku])
   @@index([productId, active])
   @@map("variants")
 }
@@ -205,6 +277,9 @@ model User {
   carts     Cart[]
   addresses Address[]
   sessions  Session[]
+  /// Present only if this user has applied to sell — see Seller.ownerId's
+  /// own comment on why this is 1:1, not 1:N, in v1.
+  seller    Seller?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -390,6 +465,14 @@ model OrderLine {
   variantId String?
   variant   Variant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
 
+  /// Snapshotted at order-placement time, same reasoning as sku/productTitle
+  /// below: which seller gets paid for this line must never change even if
+  /// the product is later reassigned or the seller record changes. Restrict,
+  /// not SetNull — a seller with real order history attached must never be
+  /// hard-deletable (same guardrail philosophy as Order's own children).
+  sellerId String
+  seller   Seller @relation(fields: [sellerId], references: [id], onDelete: Restrict)
+
   // Snapshotted so the invoice stays true even if the catalogue changes or
   // the product is deleted. An order line is a historical record, not a view.
   sku             String
@@ -400,7 +483,12 @@ model OrderLine {
   quantity        Int
   lineTotalSantim Int
 
+  createdAt DateTime @default(now())
+
   @@index([orderId])
+  // Seller order management ("show me my sold items") filters on exactly
+  // this — a seller's own lines ordered by recency.
+  @@index([sellerId, createdAt])
   @@map("order_lines")
 }
 

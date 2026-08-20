@@ -152,6 +152,7 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
           lines: {
             create: cart.lines.map((line) => ({
               variantId: line.variantId,
+              sellerId: line.variant.product.sellerId,
               sku: line.variant.sku,
               productTitle: line.variant.product.title,
               variantTitle: line.variant.title,

@@ -70,6 +70,37 @@ function shoeVariants(skuBase: string, priceBirr: number, stock: number[]): Vari
   }));
 }
 
+/// Which seed seller owns each product, by slug. Real multi-vendor data,
+/// not one store with everything under it — this is the thing the whole
+/// marketplace pivot needs seed data to actually exercise: seller-scoped
+/// queries, seller dashboards, and storefront pages with more than one
+/// seller in them.
+const PRODUCT_SELLER_SLUG: Record<string, string> = {
+  "aria-overshirt": "lumen",
+  "meridian-parka": "lumen",
+  "essential-tee": "lumen",
+  "field-trouser": "lumen",
+  "harbor-knit": "lumen",
+  "canvas-tote": "lumen",
+  "runner-low": "harbor-footwear",
+  "desert-chukka": "harbor-footwear",
+};
+
+const SELLERS = [
+  {
+    slug: "lumen",
+    storeName: "LUMEN",
+    ownerEmail: "seller-lumen@example.et",
+    description: "Minimal, premium apparel and outerwear — cut to last, not to trend.",
+  },
+  {
+    slug: "harbor-footwear",
+    storeName: "Harbor Footwear Co.",
+    ownerEmail: "seller-harbor@example.et",
+    description: "Small-batch footwear, built on the same lasts for a decade running.",
+  },
+];
+
 const PRODUCTS: ProductSeed[] = [
   {
     slug: "aria-overshirt",
@@ -124,7 +155,7 @@ const PRODUCTS: ProductSeed[] = [
     description:
       "A low-profile trainer in a seamless knit upper with a full-length EVA midsole. Reflective " +
       "heel tab, recycled laces, built to disappear on your foot within a day.",
-    brand: "LUMEN",
+    brand: "Harbor Footwear Co.",
     featured: true,
     collections: ["footwear", "new-arrivals"],
     variants: shoeVariants("RUN-LOW", 4200, [5, 9, 12, 8, 3]),
@@ -136,7 +167,7 @@ const PRODUCTS: ProductSeed[] = [
     description:
       "A two-eyelet chukka in oiled suede on a natural crepe sole. Unlined for a broken-in feel from " +
       "the first wear, finished with waxed cotton laces.",
-    brand: "LUMEN",
+    brand: "Harbor Footwear Co.",
     collections: ["footwear"],
     variants: shoeVariants("DST-CHK", 5100, [2, 4, 5, 3, 1]),
   },
@@ -169,6 +200,30 @@ const PRODUCTS: ProductSeed[] = [
 async function main() {
   console.log("Seeding LUMEN catalogue…");
 
+  const sellerIds = new Map<string, string>();
+  for (const s of SELLERS) {
+    const owner = await prisma.user.upsert({
+      where: { email: s.ownerEmail },
+      create: { email: s.ownerEmail, role: "CUSTOMER" },
+      update: {},
+    });
+    const seller = await prisma.seller.upsert({
+      where: { ownerId: owner.id },
+      create: {
+        ownerId: owner.id,
+        storeName: s.storeName,
+        slug: s.slug,
+        description: s.description,
+        status: "APPROVED",
+        reviewedAt: new Date(),
+        reviewedBy: "seed-script",
+      },
+      update: { storeName: s.storeName, description: s.description },
+    });
+    sellerIds.set(s.slug, seller.id);
+    console.log(`  ✓ seller: ${s.storeName}`);
+  }
+
   const collectionIds = new Map<string, string>();
   for (const [i, c] of COLLECTIONS.entries()) {
     const row = await prisma.collection.upsert({
@@ -180,9 +235,14 @@ async function main() {
   }
 
   for (const p of PRODUCTS) {
+    const sellerSlug = PRODUCT_SELLER_SLUG[p.slug];
+    const sellerId = sellerSlug ? sellerIds.get(sellerSlug) : undefined;
+    if (!sellerId) throw new Error(`No seller mapped for product "${p.slug}" — add it to PRODUCT_SELLER_SLUG.`);
+
     const product = await prisma.product.upsert({
       where: { slug: p.slug },
       create: {
+        sellerId,
         slug: p.slug,
         title: p.title,
         subtitle: p.subtitle,
@@ -191,13 +251,20 @@ async function main() {
         status: "ACTIVE",
         featured: p.featured ?? false,
         heroImage: img(p.slug),
-        metaTitle: `${p.title} — LUMEN`,
+        metaTitle: `${p.title} — ${p.brand}`,
         metaDescription: p.subtitle,
       },
       update: {
+        // Re-running the seed against a database migrated from before this
+        // seller domain existed (every pre-existing product was backfilled
+        // onto a placeholder "Legacy Catalogue" seller — see the migration's
+        // own comment) must actually move products onto their real sellers,
+        // not just leave them there forever.
+        sellerId,
         title: p.title,
         subtitle: p.subtitle,
         description: p.description,
+        brand: p.brand,
         featured: p.featured ?? false,
       },
     });
@@ -235,7 +302,7 @@ async function main() {
 
     for (const [vIndex, v] of p.variants.entries()) {
       const variant = await prisma.variant.upsert({
-        where: { sku: v.sku },
+        where: { productId_sku: { productId: product.id, sku: v.sku } },
         create: {
           productId: product.id,
           sku: v.sku,
