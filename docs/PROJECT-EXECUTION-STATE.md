@@ -2177,7 +2177,7 @@ proved out this session — do not relax these just because the scope grew)
       confirmed the real variant's `active` column genuinely flipped both
       directions in the database.
 
-### Current status / where to resume (2026-08-22, commit `PENDING`)
+### Current status / where to resume (2026-08-22, commit `08333f9`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
