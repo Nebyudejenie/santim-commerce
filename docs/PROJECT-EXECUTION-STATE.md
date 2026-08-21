@@ -1756,7 +1756,7 @@ proved out this session — do not relax these just because the scope grew)
       thread URL by id-guessing. All seeded data and verify scripts
       cleaned up afterward.
 
-### Current status / where to resume (2026-08-21, commit `PENDING`)
+### Current status / where to resume (2026-08-21, commit `b2f36ea`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
