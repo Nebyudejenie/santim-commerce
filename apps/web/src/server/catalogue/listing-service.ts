@@ -151,6 +151,8 @@ export interface UpdateProductInput {
   readonly subtitle?: string;
   readonly description?: string;
   readonly brand?: string;
+  readonly metaTitle?: string;
+  readonly metaDescription?: string;
 }
 
 export async function updateProduct(sellerId: string, productId: string, input: UpdateProductInput) {
@@ -169,6 +171,12 @@ export async function updateProduct(sellerId: string, productId: string, input: 
     data.description = description;
   }
   if (input.brand !== undefined) data.brand = input.brand.trim() || null;
+  // Both genuinely optional — the product page's own generateMetadata
+  // already falls back to title/subtitle when these are unset (confirmed
+  // via the dead-field audit that found this write path missing: the
+  // READ side already existed and worked, nothing could ever set them).
+  if (input.metaTitle !== undefined) data.metaTitle = input.metaTitle.trim() || null;
+  if (input.metaDescription !== undefined) data.metaDescription = input.metaDescription.trim() || null;
 
   const updated = await prisma.product.update({ where: { id: productId }, data });
   logger.info("listing.updated", { productId, sellerId });

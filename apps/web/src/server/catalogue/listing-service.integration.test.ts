@@ -250,6 +250,27 @@ test("updateVariant sets, then clears, a real compareAtSantim — and validates 
   );
 });
 
+test("updateProduct sets, then clears, real metaTitle/metaDescription — the write path a dead-field audit found missing", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const sellerId = await makeSeller(`seo-${suffix}`);
+  const product = await createProduct(sellerId, baseInput(`seo-${suffix}`));
+
+  await updateProduct(sellerId, product.id, {
+    metaTitle: "  Real SEO Title  ",
+    metaDescription: "  A real, hand-written description for search results.  ",
+  });
+  let refetched = await getSellerProduct(sellerId, product.id);
+  assert.equal(refetched?.metaTitle, "Real SEO Title", "must be trimmed");
+  assert.equal(refetched?.metaDescription, "A real, hand-written description for search results.");
+
+  // A blank submission clears it back to null, not a no-op — the product
+  // page's own generateMetadata then correctly falls back to title/subtitle.
+  await updateProduct(sellerId, product.id, { metaTitle: "", metaDescription: "" });
+  refetched = await getSellerProduct(sellerId, product.id);
+  assert.equal(refetched?.metaTitle, null);
+  assert.equal(refetched?.metaDescription, null);
+});
+
 test("setProductFeaturedAsAdmin is the only way to mark a product featured — a seller's own updateProduct has no such field", async () => {
   const suffix = Math.random().toString(36).slice(2, 8);
   const sellerId = await makeSeller(`featured-${suffix}`);

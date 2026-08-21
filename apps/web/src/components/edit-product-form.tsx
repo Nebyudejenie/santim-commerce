@@ -6,7 +6,15 @@ import { updateProductAction, type ListingActionState } from "@/server/actions/l
 const INITIAL_STATE: ListingActionState = { ok: false };
 
 interface Props {
-  product: { id: string; title: string; subtitle: string | null; description: string; brand: string | null };
+  product: {
+    id: string;
+    title: string;
+    subtitle: string | null;
+    description: string;
+    brand: string | null;
+    metaTitle: string | null;
+    metaDescription: string | null;
+  };
 }
 
 export function EditProductForm({ product }: Props) {
@@ -34,6 +42,21 @@ export function EditProductForm({ product }: Props) {
       <div className="form-field">
         <label htmlFor="brand">Brand</label>
         <input id="brand" name="brand" type="text" maxLength={100} defaultValue={product.brand ?? ""} />
+      </div>
+
+      <div className="section-head" style={{ marginTop: "var(--space-6)" }}>
+        <h2 style={{ fontSize: "var(--text-lg)" }}>Search appearance</h2>
+      </div>
+      <p className="form-hint">
+        What shows up in search engine results. Leave blank to use the title and subtitle above instead.
+      </p>
+      <div className="form-field">
+        <label htmlFor="metaTitle">SEO title</label>
+        <input id="metaTitle" name="metaTitle" type="text" maxLength={200} defaultValue={product.metaTitle ?? ""} />
+      </div>
+      <div className="form-field">
+        <label htmlFor="metaDescription">SEO description</label>
+        <textarea id="metaDescription" name="metaDescription" rows={2} maxLength={300} defaultValue={product.metaDescription ?? ""} />
       </div>
 
       <button type="submit" className="btn btn--secondary" disabled={pending}>

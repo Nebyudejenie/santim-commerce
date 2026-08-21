@@ -1327,12 +1327,50 @@ proved out this session — do not relax these just because the scope grew)
       backwards (50 ETB compare-at against an 80 ETB price) submission
       correctly rejected with the database confirmed unchanged.
 
-### Current status / where to resume (2026-08-21, commit `6eae507`)
+- [x] **SEO title/description write path — the fifth dead field this
+      session** — the compare-at entry above already flagged this one:
+      `Product.metaTitle`/`metaDescription` were genuinely read (the
+      product page's own `generateMetadata` already fell back to
+      `title`/`subtitle` when unset) but had NO way for a seller to ever
+      set them — `CreateProductInput`/`UpdateProductInput` simply didn't
+      have the fields. Closing this out now that compare-at pricing
+      shipped clean.
+
+      Added to `updateProduct` only, not `createProduct` — the same
+      "not at initial creation, only as an ongoing refinement" scoping
+      already applied to `lowStockThreshold` and `compareAtBirr`: SEO
+      copy is something a seller tunes once they see the listing live,
+      not something worth a field on the first-draft form. Blank input
+      clears back to null (the fallback), not a no-op — matches every
+      other optional-text-field convention already established this
+      session (`updateSellerProfile`, `updateVariant`'s `compareAtBirr`).
+      New "Search appearance" section on the product-edit form.
+
+      1 new integration test (sets and trims real values, then clears
+      them back to null via a blank submission). Full regression suite
+      (72 unit, 193 integration) and a production build pass. Verified
+      end-to-end over real HTTP: the baseline `<title>` tag falling back
+      to the product's own title before any SEO override; a real seller
+      submitting a real SEO title/description via Next's actual Server
+      Action protocol; the product page's `<title>` and
+      `<meta name="description">` tags immediately reflecting the real
+      submitted values; and a follow-up blank submission correctly
+      reverting the `<title>` tag back to the fallback. (One real,
+      useful diagnostic detour along the way: the first two submission
+      attempts appeared to silently do nothing under a naive HTML-text
+      check for a rendered error banner — the actual cause, found by
+      reading the RSC payload's own embedded state object directly, was
+      a genuinely working, pre-existing, UNRELATED validation rejecting
+      the seed script's 1-character placeholder description. Once
+      corrected to a real ≥10-character description, the update — and
+      the error path's own real correctness — were both confirmed.)
+
+### Current status / where to resume (2026-08-21, commit `PENDING`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
 watched to a real, uncontested completion, per this session's own working
-discipline above. Full regression suite (typecheck, lint, 72 unit, 192
+discipline above. Full regression suite (typecheck, lint, 72 unit, 193
 integration) and a production build all pass cleanly as of this commit.
 
 Deliberately still out of scope, not oversights — both genuinely blocked
@@ -1363,14 +1401,13 @@ import/export, back-in-stock notifications, admin payout recording,
 customer order cancellation, guest order lookup, admin-assisted password
 reset, self-service password change, admin customer suspension, seller
 self-service storefront settings, order delivery notes, seller low-stock
-alerts, compare-at pricing, and
+alerts, compare-at pricing, SEO title/description, and
 more, each confirmed genuinely absent before being built). No further
 specific candidate is
-currently queued — a systematic dead-field audit found one more small
-real gap not yet fixed (`Product.metaTitle`/`metaDescription` have no
-write path) and one confirmed-but-out-of-scope one
-(`User.emailVerifiedAt`) — see the compare-at entry above. Gift cards /
-store credit was considered and
+currently queued — the systematic dead-field audit's one remaining
+finding, `User.emailVerifiedAt`, is confirmed dead but correctly out of
+scope (see the compare-at entry above for why). Gift cards / store
+credit was considered and
 deliberately not pursued: unlike everything built this session, issuing
 one would need a real payment-collection step, the same real-gateway-
 confirmation complexity already blocking seller payouts, not a clean fit

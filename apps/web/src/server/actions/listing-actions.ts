@@ -85,6 +85,8 @@ export async function updateProductAction(
       subtitle: String(formData.get("subtitle") ?? ""),
       description: String(formData.get("description") ?? ""),
       brand: String(formData.get("brand") ?? ""),
+      metaTitle: String(formData.get("metaTitle") ?? ""),
+      metaDescription: String(formData.get("metaDescription") ?? ""),
     });
   } catch (error) {
     if (error instanceof ListingError) return { ok: false, message: error.message };
