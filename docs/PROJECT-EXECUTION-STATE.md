@@ -2290,7 +2290,7 @@ proved out this session — do not relax these just because the scope grew)
       no real HTTP E2E section: there is no new behavior for one to
       demonstrate.
 
-### Current status / where to resume (2026-08-22, commit `PENDING`)
+### Current status / where to resume (2026-08-22, commit `7d9907e`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
