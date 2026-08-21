@@ -3,6 +3,8 @@ import type { Metadata } from "next";
 import { ProductCard } from "@/components/product-card";
 import { searchProducts, type SearchSort } from "@/server/search/search-service";
 import { birr, MoneyError } from "@santim/santimpay";
+import { getSessionUser } from "@/server/auth/session";
+import { listWishlistedProductIds } from "@/server/wishlist/wishlist-service";
 
 interface SearchPageProps {
   searchParams: Promise<{
@@ -58,14 +60,18 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
     ? params.sort
     : "relevance") as SearchSort;
 
-  const result = await searchProducts({
-    query,
-    brand: params.brand,
-    minPriceSantim: parsePriceBirr(params.minPrice),
-    maxPriceSantim: parsePriceBirr(params.maxPrice),
-    sort,
-    page,
-  });
+  const [result, user] = await Promise.all([
+    searchProducts({
+      query,
+      brand: params.brand,
+      minPriceSantim: parsePriceBirr(params.minPrice),
+      maxPriceSantim: parsePriceBirr(params.maxPrice),
+      sort,
+      page,
+    }),
+    getSessionUser(),
+  ]);
+  const wishlistedIds = user ? await listWishlistedProductIds(user.id) : new Set<string>();
 
   const totalPages = Math.max(1, Math.ceil(result.total / result.pageSize));
   const currentParams = { q: params.q, brand: params.brand, minPrice: params.minPrice, maxPrice: params.maxPrice, sort: params.sort };
@@ -152,7 +158,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
             <>
               <div className="product-grid">
                 {result.products.map((product, i) => (
-                  <ProductCard key={product.id} product={product} index={i} />
+                  <ProductCard key={product.id} product={product} index={i} signedIn={Boolean(user)} wishlisted={wishlistedIds.has(product.id)} />
                 ))}
               </div>
 

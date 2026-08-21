@@ -9,10 +9,13 @@ export function WishlistButton({
   productId,
   productSlug,
   initialWishlisted,
+  compact = false,
 }: {
   productId: string;
   productSlug: string;
   initialWishlisted: boolean;
+  /** Icon-only, for a grid-card overlay — no "Save"/"Saved" label, no inline error text. */
+  compact?: boolean;
 }) {
   const [state, formAction, pending] = useActionState(toggleWishlistAction, INITIAL_STATE);
   // Optimistic-ish local mirror of the server's real answer — starts from
@@ -25,17 +28,25 @@ export function WishlistButton({
   }, [state]);
 
   return (
-    <form action={formAction}>
+    <form
+      action={formAction}
+      className={compact ? "wishlist-button-form wishlist-button-form--compact" : "wishlist-button-form"}
+      // A grid card's own media/body are separate <Link>s around this form
+      // (siblings, never nesting a <form> inside an <a>) — but the form
+      // still sits visually on top of the image, so a click must not also
+      // trigger whichever Link happens to be underneath it.
+      onClick={(e) => e.stopPropagation()}
+    >
       <input type="hidden" name="productId" value={productId} />
       <input type="hidden" name="productSlug" value={productSlug} />
       <button
         type="submit"
-        className="wishlist-button"
+        className={compact ? "wishlist-button wishlist-button--compact" : "wishlist-button"}
         aria-pressed={wishlisted}
         aria-label={wishlisted ? "Remove from wishlist" : "Save to wishlist"}
         disabled={pending}
       >
-        <svg width="20" height="20" viewBox="0 0 24 24" fill={wishlisted ? "currentColor" : "none"} aria-hidden="true">
+        <svg width={compact ? 16 : 20} height={compact ? 16 : 20} viewBox="0 0 24 24" fill={wishlisted ? "currentColor" : "none"} aria-hidden="true">
           <path
             d="M12 20.5s-7.5-4.6-10-9.1C0.5 8.2 2 4.5 5.5 4c2.1-.3 4 .8 6.5 3.3C14.5 4.8 16.4 3.7 18.5 4c3.5.5 5 4.2 3.5 7.4-2.5 4.5-10 9.1-10 9.1Z"
             stroke="currentColor"
@@ -43,9 +54,9 @@ export function WishlistButton({
             strokeLinejoin="round"
           />
         </svg>
-        {wishlisted ? "Saved" : "Save"}
+        {!compact && (wishlisted ? "Saved" : "Save")}
       </button>
-      {state.message && !state.ok && (
+      {!compact && state.message && !state.ok && (
         <p className="alert alert--error" style={{ marginTop: "var(--space-2)" }}>{state.message}</p>
       )}
     </form>

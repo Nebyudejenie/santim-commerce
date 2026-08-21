@@ -11,7 +11,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { PrismaClient } from "@prisma/client";
-import { isWishlisted, listWishlist, toggleWishlist } from "./wishlist-service.ts";
+import { isWishlisted, listWishlist, listWishlistedProductIds, toggleWishlist } from "./wishlist-service.ts";
 
 const prisma = new PrismaClient();
 
@@ -101,6 +101,27 @@ test("a wishlist is scoped to its own user — one user's items never appear for
   assert.equal((await listWishlist(userA)).length, 1);
   assert.equal((await listWishlist(userB)).length, 0);
   assert.equal(await isWishlisted(userB, productId), false);
+});
+
+test("listWishlistedProductIds returns exactly the real saved ids, scoped to the real owner, for grid-card bulk lookups", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const userId = await makeUser(suffix);
+  const stranger = await makeUser(`${suffix}-stranger`);
+  const productA = await makeProduct(`${suffix}-a`);
+  const productB = await makeProduct(`${suffix}-b`);
+  const productC = await makeProduct(`${suffix}-c`); // never wishlisted
+
+  await toggleWishlist(userId, productA);
+  await toggleWishlist(userId, productB);
+  await toggleWishlist(stranger, productC); // a different user's item must not leak in
+
+  const ids = await listWishlistedProductIds(userId);
+  assert.equal(ids.size, 2);
+  assert.ok(ids.has(productA));
+  assert.ok(ids.has(productB));
+  assert.ok(!ids.has(productC));
+
+  assert.equal((await listWishlistedProductIds(stranger)).size, 1);
 });
 
 test.after(async () => {

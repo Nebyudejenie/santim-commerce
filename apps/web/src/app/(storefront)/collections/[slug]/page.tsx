@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { ProductCard } from "@/components/product-card";
 import { getCollectionWithProducts, listCollections } from "@/server/catalogue/catalogue-service";
+import { getSessionUser } from "@/server/auth/session";
+import { listWishlistedProductIds } from "@/server/wishlist/wishlist-service";
 
 interface Props {
   params: Promise<{ slug: string }>;
@@ -16,14 +18,16 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function CollectionPage({ params }: Props) {
   const { slug } = await params;
-  const [collection, collections] = await Promise.all([
+  const [collection, collections, user] = await Promise.all([
     getCollectionWithProducts(slug),
     listCollections(),
+    getSessionUser(),
   ]);
 
   if (!collection) notFound();
 
   const products = collection.products.map((cp) => cp.product);
+  const wishlistedIds = user ? await listWishlistedProductIds(user.id) : new Set<string>();
 
   return (
     <div className="container" style={{ paddingBlock: "var(--space-7)" }}>
@@ -57,7 +61,7 @@ export default async function CollectionPage({ params }: Props) {
       ) : (
         <div className="product-grid">
           {products.map((product, i) => (
-            <ProductCard key={product.id} product={product} index={i} />
+            <ProductCard key={product.id} product={product} index={i} signedIn={Boolean(user)} wishlisted={wishlistedIds.has(product.id)} />
           ))}
         </div>
       )}

@@ -2,12 +2,16 @@ import Image from "next/image";
 import Link from "next/link";
 import { ProductCard } from "@/components/product-card";
 import { listCollections, listFeaturedProducts } from "@/server/catalogue/catalogue-service";
+import { getSessionUser } from "@/server/auth/session";
+import { listWishlistedProductIds } from "@/server/wishlist/wishlist-service";
 
 export default async function HomePage() {
-  const [featured, collections] = await Promise.all([
+  const [featured, collections, user] = await Promise.all([
     listFeaturedProducts(4),
     listCollections(),
+    getSessionUser(),
   ]);
+  const wishlistedIds = user ? await listWishlistedProductIds(user.id) : new Set<string>();
 
   return (
     <>
@@ -62,7 +66,7 @@ export default async function HomePage() {
         </div>
         <div className="product-grid">
           {featured.map((product, i) => (
-            <ProductCard key={product.id} product={product} index={i} />
+            <ProductCard key={product.id} product={product} index={i} signedIn={Boolean(user)} wishlisted={wishlistedIds.has(product.id)} />
           ))}
         </div>
       </section>

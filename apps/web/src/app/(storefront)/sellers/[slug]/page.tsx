@@ -4,6 +4,8 @@ import { ProductCard } from "@/components/product-card";
 import { SellerTrustSignals } from "@/components/seller-trust-signals";
 import { getSellerStorefront } from "@/server/catalogue/catalogue-service";
 import { getSellerReputation } from "@/server/sellers/seller-reputation-service";
+import { getSessionUser } from "@/server/auth/session";
+import { listWishlistedProductIds } from "@/server/wishlist/wishlist-service";
 
 interface Props {
   params: Promise<{ slug: string }>;
@@ -21,7 +23,8 @@ export default async function SellerStorefrontPage({ params }: Props) {
   if (!storefront) notFound();
 
   const { seller, products } = storefront;
-  const reputation = await getSellerReputation(seller.id);
+  const [reputation, user] = await Promise.all([getSellerReputation(seller.id), getSessionUser()]);
+  const wishlistedIds = user ? await listWishlistedProductIds(user.id) : new Set<string>();
 
   return (
     <div className="container" style={{ paddingBlock: "var(--space-7)" }}>
@@ -42,7 +45,7 @@ export default async function SellerStorefrontPage({ params }: Props) {
       ) : (
         <div className="product-grid">
           {products.map((product, i) => (
-            <ProductCard key={product.id} product={product} index={i} />
+            <ProductCard key={product.id} product={product} index={i} signedIn={Boolean(user)} wishlisted={wishlistedIds.has(product.id)} />
           ))}
         </div>
       )}

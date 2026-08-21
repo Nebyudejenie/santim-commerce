@@ -356,14 +356,34 @@ rather than inventing busywork.
       stays listed with its real current status after its product/seller
       state changes). Wishlist toggle button on the product page (a plain
       "Sign in to save" link for guests, no round-trip through the action
-      just to redirect); `/account/wishlist` page. Grid-level wishlist
-      buttons on /shop, /search, and collection pages are a natural,
-      deliberately deferred follow-up (would need every product-listing
-      page to bulk-fetch the signed-in user's full wishlisted-id set, a
-      wider blast radius than this v1 PDP-first scope). 5 new integration
+      just to redirect); `/account/wishlist` page. 5 new integration
       tests. Verified end-to-end over real HTTP: a real saved item renders
       on both the wishlist page and as "Saved" (`aria-pressed="true"`) on
       its own product page.
+- [x] **Grid-level wishlist buttons** — the follow-up deliberately deferred
+      when wishlist first shipped. `ProductCard` (shared by /shop, /, search,
+      collection pages, and seller storefronts — 5 consumer pages, all
+      updated) restructured from one big `<Link>` wrapping the whole card
+      into two sibling `<Link>`s (image, body) plus the wishlist toggle as a
+      third sibling — an `<a>` cannot legally contain interactive content
+      like a `<form>`/`<button>`, so nesting the toggle inside the original
+      single Link would have been invalid HTML. New `WishlistButton
+      compact` variant (icon-only, no "Save"/"Saved" label) absolutely
+      positioned over the image corner. New `listWishlistedProductIds()` —
+      one bulk query per page (`Set<string>`), not N (one per card); every
+      consumer page fetches it once alongside its product list and passes
+      `wishlisted={ids.has(product.id)}` per card, exactly the N+1 several
+      list pages the original deferral was worried about, done as one query.
+      1 new integration test (ownership-scoped bulk lookup). Verified
+      end-to-end over real HTTP on /shop, /search, and the product page:
+      real per-card wishlisted state renders correctly for a signed-in user
+      (confirmed against the actual seeded product count via a reliable
+      extraction method, after an initial naive substring-count check gave
+      a misleading result — Next.js embeds a duplicate serialized RSC
+      payload alongside the rendered HTML, which inflates some raw
+      grep-based counts and not others); guests get plain "Sign in to save"
+      links with zero interactive toggle buttons, confirmed exactly 0
+      `aria-pressed` attributes present for a guest request.
 - [x] **Address book** — no schema change needed; the `Address` model had
       existed since an earlier phase with zero real usage. New
       `address-service.ts`/`address-actions.ts`, ownership-checked exactly

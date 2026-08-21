@@ -55,6 +55,16 @@ export async function isWishlisted(userId: string, productId: string): Promise<b
   return existing !== null;
 }
 
+/**
+ * Bulk lookup for a product grid — one query for the whole page instead of
+ * N (one per card). Callers check membership with `.has(productId)`, same
+ * as any other set-based "is this one of mine" check.
+ */
+export async function listWishlistedProductIds(userId: string): Promise<Set<string>> {
+  const rows = await prisma.wishlistItem.findMany({ where: { userId }, select: { productId: true } });
+  return new Set(rows.map((r) => r.productId));
+}
+
 export async function listWishlist(userId: string) {
   return prisma.wishlistItem.findMany({
     where: { userId },
