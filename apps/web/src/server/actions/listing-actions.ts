@@ -64,6 +64,8 @@ export async function createProductAction(
       sku: String(formData.get("sku") ?? ""),
       priceBirr: String(formData.get("priceBirr") ?? ""),
       onHand: String(formData.get("onHand") ?? ""),
+      optionName: String(formData.get("optionName") ?? ""),
+      optionValue: String(formData.get("optionValue") ?? ""),
     });
     productId = product.id;
   } catch (error) {
@@ -144,6 +146,8 @@ export async function addVariantAction(
       priceBirr: String(formData.get("priceBirr") ?? ""),
       onHand: String(formData.get("onHand") ?? ""),
       compareAtBirr: String(formData.get("compareAtBirr") ?? ""),
+      optionName: String(formData.get("optionName") ?? ""),
+      optionValue: String(formData.get("optionValue") ?? ""),
     });
   } catch (error) {
     if (error instanceof ListingError) return { ok: false, message: error.message };
@@ -173,6 +177,8 @@ export async function updateVariantAction(
       active: activeRaw === null ? undefined : activeRaw === "on",
       lowStockThreshold: Number(formData.get("lowStockThreshold") ?? ""),
       compareAtBirr: String(formData.get("compareAtBirr") ?? ""),
+      optionName: String(formData.get("optionName") ?? ""),
+      optionValue: String(formData.get("optionValue") ?? ""),
     });
   } catch (error) {
     if (error instanceof ListingError) return { ok: false, message: error.message };

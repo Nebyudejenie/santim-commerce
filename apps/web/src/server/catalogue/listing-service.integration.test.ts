@@ -58,6 +58,54 @@ test("a new listing starts DRAFT with one variant and real inventory", async () 
   assert.equal(full?.variants[0]?.inventory?.onHand, 10);
 });
 
+test("createProduct sets real options on the first variant when given, and leaves it {} when not — the storefront's own variant-selector data", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const sellerId = await makeSeller(`options-${suffix}`);
+
+  const withOptions = await createProduct(sellerId, { ...baseInput(`options-a-${suffix}`), optionName: "Size", optionValue: "M" });
+  const fullWithOptions = await getSellerProduct(sellerId, withOptions.id);
+  assert.deepEqual(fullWithOptions?.variants[0]?.options, { Size: "M" });
+
+  const withoutOptions = await createProduct(sellerId, baseInput(`options-b-${suffix}`));
+  const fullWithoutOptions = await getSellerProduct(sellerId, withoutOptions.id);
+  assert.deepEqual(fullWithoutOptions?.variants[0]?.options, {});
+});
+
+test("addVariant sets real options on a real new variant", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const sellerId = await makeSeller(`addopt-${suffix}`);
+  const product = await createProduct(sellerId, { ...baseInput(`addopt-${suffix}`), optionName: "Size", optionValue: "S" });
+
+  await addVariant(sellerId, product.id, {
+    title: "Size M",
+    sku: `ADDOPT-${suffix}-M`,
+    priceBirr: "199.99",
+    onHand: "5",
+    optionName: "Size",
+    optionValue: "M",
+  });
+
+  const full = await getSellerProduct(sellerId, product.id);
+  const added = full?.variants.find((v) => v.sku === `ADDOPT-${suffix}-M`);
+  assert.deepEqual(added?.options, { Size: "M" });
+});
+
+test("updateVariant sets, then clears, real options — the same 'blank clears it' convention as compareAtBirr", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const sellerId = await makeSeller(`updopt-${suffix}`);
+  const product = await createProduct(sellerId, baseInput(`updopt-${suffix}`));
+  const owned = await getSellerProduct(sellerId, product.id);
+  const variantId = owned!.variants[0]!.id;
+
+  await updateVariant(sellerId, variantId, { optionName: "Colour", optionValue: "Black" });
+  const withOption = await getSellerProduct(sellerId, product.id);
+  assert.deepEqual(withOption?.variants[0]?.options, { Colour: "Black" });
+
+  await updateVariant(sellerId, variantId, { optionName: "", optionValue: "" });
+  const cleared = await getSellerProduct(sellerId, product.id);
+  assert.deepEqual(cleared?.variants[0]?.options, {}, "a blank name/value must clear the real options, not leave the old ones");
+});
+
 test("publishing requires a variant, and DRAFT -> ACTIVE -> ARCHIVED -> ACTIVE is legal", async () => {
   const sellerId = await makeSeller(`publish-${Math.random().toString(36).slice(2, 8)}`);
   const product = await createProduct(sellerId, baseInput("B"));

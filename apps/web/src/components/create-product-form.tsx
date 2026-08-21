@@ -46,6 +46,18 @@ export function CreateProductForm() {
         <input id="variantTitle" name="variantTitle" type="text" placeholder="e.g. Black / M" maxLength={100} />
       </div>
       <div className="form-field">
+        <label htmlFor="optionName">Option name (optional)</label>
+        <input id="optionName" name="optionName" type="text" placeholder="e.g. Size" maxLength={40} />
+        <p className="form-hint">
+          If you&apos;ll add more sizes or colours later, set this now — e.g. &quot;Size&quot; with a value
+          of &quot;M&quot; below. Buyers pick between variants using this label.
+        </p>
+      </div>
+      <div className="form-field">
+        <label htmlFor="optionValue">Option value (optional)</label>
+        <input id="optionValue" name="optionValue" type="text" placeholder="e.g. M" maxLength={40} />
+      </div>
+      <div className="form-field">
         <label htmlFor="sku">SKU</label>
         <input id="sku" name="sku" type="text" required maxLength={64} />
       </div>

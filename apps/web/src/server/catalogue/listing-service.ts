@@ -68,6 +68,32 @@ export interface CreateProductInput {
   readonly sku: string;
   readonly priceBirr: string;
   readonly onHand: string;
+  /** See `buildOptions`'s own comment — the storefront's variant selector
+   * only ever reads the FIRST variant's option key, so this one matters
+   * even for a product that (so far) has only this one variant. */
+  readonly optionName?: string;
+  readonly optionValue?: string;
+}
+
+/**
+ * `Variant.options` is a real, storefront-facing field — add-to-cart-form.tsx
+ * derives its ENTIRE size/colour selector from it (`optionKey =
+ * Object.keys(variants[0].options)[0]`). Confirmed absent before this: no
+ * seller-facing write path anywhere ever set it, so every seller-created
+ * variant defaulted to `{}` forever — the selector rendered a row of
+ * completely blank, indistinguishable swatch buttons for any real
+ * multi-variant listing. A single (name, value) pair, not a list — the
+ * storefront selector itself only ever supports one option axis (its own
+ * `optionKey` is singular), so a second axis would be dead weight here
+ * too, the same reasoning that kept this scoped to what the read side
+ * actually uses. Blank name-or-value means "no option" (an empty object),
+ * matching every other optional field's own "blank clears it" convention
+ * in this codebase (e.g. `compareAtBirr` below).
+ */
+function buildOptions(name: string | undefined, value: string | undefined): Record<string, string> {
+  const trimmedName = name?.trim();
+  const trimmedValue = value?.trim();
+  return trimmedName && trimmedValue ? { [trimmedName]: trimmedValue } : {};
 }
 
 /** Always DRAFT — a seller publishes separately via setProductStatus. */
@@ -116,6 +142,7 @@ export async function createProduct(sellerId: string, input: CreateProductInput)
             sku,
             title: input.variantTitle.trim() || "Default",
             priceSantim,
+            options: buildOptions(input.optionName, input.optionValue),
           },
         });
 
@@ -214,6 +241,8 @@ export interface AddVariantInput {
   readonly priceBirr: string;
   readonly onHand: string;
   readonly compareAtBirr?: string;
+  readonly optionName?: string;
+  readonly optionValue?: string;
 }
 
 export async function addVariant(sellerId: string, productId: string, input: AddVariantInput) {
@@ -233,7 +262,14 @@ export async function addVariant(sellerId: string, productId: string, input: Add
 
   try {
     const variant = await prisma.variant.create({
-      data: { productId, sku, title: input.title.trim() || "Default", priceSantim, compareAtSantim },
+      data: {
+        productId,
+        sku,
+        title: input.title.trim() || "Default",
+        priceSantim,
+        compareAtSantim,
+        options: buildOptions(input.optionName, input.optionValue),
+      },
     });
     await prisma.inventory.create({ data: { variantId: variant.id, onHand, reserved: 0 } });
     logger.info("listing.variant_added", { productId, sellerId, variantId: variant.id });
@@ -252,6 +288,8 @@ export interface UpdateVariantInput {
   readonly active?: boolean;
   readonly lowStockThreshold?: number;
   readonly compareAtBirr?: string;
+  readonly optionName?: string;
+  readonly optionValue?: string;
 }
 
 /** Ownership is checked via the variant's OWN product, never trusted from the caller. */
@@ -261,7 +299,7 @@ export async function updateVariant(sellerId: string, variantId: string, input: 
     throw new ListingError("Variant not found.");
   }
 
-  const data: Record<string, number | boolean | null> = {};
+  const data: Record<string, number | boolean | null | Record<string, string>> = {};
   if (input.priceBirr !== undefined) data.priceSantim = parseBirr(input.priceBirr, "Price");
   if (input.active !== undefined) data.active = input.active;
   if (input.compareAtBirr !== undefined) {
@@ -275,6 +313,13 @@ export async function updateVariant(sellerId: string, variantId: string, input: 
       throw new ListingError("Compare-at price must be higher than the actual price.");
     }
     data.compareAtSantim = compareAtSantim;
+  }
+  // Same "always present, blank clears it" convention as compareAtBirr
+  // above — the real edit form always submits both fields (even empty),
+  // so this recomputes the real options object from whatever's currently
+  // in the form every save, never a partial, driftable merge.
+  if (input.optionName !== undefined || input.optionValue !== undefined) {
+    data.options = buildOptions(input.optionName, input.optionValue);
   }
 
   // Wrapped in a transaction only when the price actually moves down —

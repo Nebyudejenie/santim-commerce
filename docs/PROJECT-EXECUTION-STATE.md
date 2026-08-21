@@ -2022,12 +2022,64 @@ proved out this session — do not relax these just because the scope grew)
       and left that seller's real price untouched. All seeded data and
       verify scripts cleaned up afterward.
 
-### Current status / where to resume (2026-08-22, commit `23bc27a`)
+- [x] **Wired `Variant.options` — the broken multi-variant selector** — the
+      single most user-visible bug found this entire session. `Variant.
+      options` (`{"Size":"M"}`-shaped JSON) has been read by the
+      storefront's variant selector (`add-to-cart-form.tsx`) since it was
+      built: `optionKey = Object.keys(variants[0].options)[0]`, then every
+      swatch button renders `v.options[optionKey]`. Confirmed by grep: NO
+      seller-facing write path anywhere ever set this field — `createProduct`,
+      `addVariant`, and `updateVariant` all left every real variant at the
+      schema default, `{}`, forever. The practical effect: for EVERY real
+      multi-variant listing a seller ever created through this app's own
+      UI, the size/colour selector rendered a row of completely blank,
+      indistinguishable swatch buttons — a buyer had no way to tell which
+      button was Small vs Large. Products only ever looked right when a
+      seed script hand-set the JSON directly.
+
+      New `buildOptions(name, value)` in listing-service.ts — a single
+      (name, value) pair, not a list: the storefront's own `optionKey` is
+      singular (only ever reads the FIRST key), so a second option axis
+      would be dead weight the read side can't even display; scope
+      matches what's actually used, not a hypothetical richer model.
+      `CreateProductInput`/`AddVariantInput`/`UpdateVariantInput` all gained
+      `optionName?`/`optionValue?`. Update follows the exact same "blank
+      clears it" convention `compareAtBirr` already established in this
+      same file — both fields are always present on the real edit form,
+      so every save recomputes the real options object from whatever's
+      currently in the form, never a partial, driftable merge. The FIRST
+      variant (created via `createProduct`, not `addVariant`) needed this
+      too, not just later ones — `variants[0]` is literally what the
+      storefront reads to determine the option key for the WHOLE set, so
+      a bare-default first variant would have kept the selector broken
+      even if every variant added afterward set real options correctly.
+
+      New "Option name"/"Option value" fields on `CreateProductForm`,
+      `AddVariantForm`, and `VariantRow` (pre-filled from the variant's
+      real existing options for editing).
+
+      3 new integration tests (`createProduct` sets real options when
+      given and leaves the real default `{}` when not; `addVariant` sets
+      real options on a new variant; `updateVariant` sets then genuinely
+      clears real options on a blank resubmission). Full regression (72
+      unit, 259 integration, run twice given this touches the core
+      seller-listing write path every prior feature this session
+      depends on) and a production build pass — no schema/migration
+      change, purely wiring an existing field. Real HTTP E2E: created a
+      real two-variant listing (Size S / Size M) through the real
+      create-listing and add-variant forms, published it, and confirmed
+      the real PDP rendered genuinely labeled "S" and "M" swatch buttons
+      with a real "Size: S" label — not blank — then edited the first
+      variant's real option value from S to XS through the real seller
+      form and confirmed the PDP's real swatch text updated accordingly.
+      All seeded data and verify scripts cleaned up afterward.
+
+### Current status / where to resume (2026-08-22, commit `PENDING`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
 watched to a real, uncontested completion, per this session's own working
-discipline above. Full regression suite (typecheck, lint, 72 unit, 256
+discipline above. Full regression suite (typecheck, lint, 72 unit, 259
 integration) and a production build all pass cleanly as of this commit.
 
 Deliberately still out of scope, not oversights — both genuinely blocked
@@ -2063,7 +2115,8 @@ deletion, related products, the ProductCard low-stock badge fix, an
 admin audit log, product Q&A moderation, self-service data export, seller order search/filter, customer order search, admin users CSV export, seller vacation mode, seller "new sale" notification, buyer-seller order
 messaging, admin message moderation, return dispute escalation,
 application-level login brute-force protection, wishlist price-drop
-alerts, bulk update-by-SKU CSV import, and more, each confirmed genuinely absent before being built). No further
+alerts, bulk update-by-SKU CSV import, wiring the broken
+Variant.options multi-variant selector, and more, each confirmed genuinely absent before being built). No further
 specific candidate is currently queued — the systematic dead-field
 audit's one remaining finding, `User.emailVerifiedAt`, is confirmed dead
 but correctly out of scope (see the compare-at entry above for why).

@@ -14,17 +14,20 @@ interface VariantRowProps {
     priceSantim: number;
     compareAtSantim: number | null;
     active: boolean;
+    options: unknown;
     inventory: { onHand: number; lowStockThreshold: number } | null;
   };
 }
 
 export function VariantRow({ productId, variant }: VariantRowProps) {
   const [state, formAction, pending] = useActionState(updateVariantAction, INITIAL_STATE);
+  const options = (variant.options ?? {}) as Record<string, string>;
+  const [existingOptionName, existingOptionValue] = Object.entries(options)[0] ?? ["", ""];
 
   return (
     <form
       action={formAction}
-      style={{ display: "grid", gridTemplateColumns: "1fr 100px 100px 100px 110px 90px auto", gap: "var(--space-3)", alignItems: "center", padding: "var(--space-3) 0", borderBottom: "1px solid var(--border)" }}
+      style={{ display: "grid", gridTemplateColumns: "1fr 90px 90px 100px 100px 110px 90px auto", gap: "var(--space-3)", alignItems: "center", padding: "var(--space-3) 0", borderBottom: "1px solid var(--border)" }}
     >
       <input type="hidden" name="variantId" value={variant.id} />
       <input type="hidden" name="productId" value={productId} />
@@ -32,6 +35,22 @@ export function VariantRow({ productId, variant }: VariantRowProps) {
         <div style={{ fontWeight: 600 }}>{variant.title}</div>
         <div style={{ fontSize: "var(--text-xs)", color: "var(--fg-muted)" }}>{variant.sku}</div>
       </div>
+      <input
+        name="optionName"
+        type="text"
+        defaultValue={existingOptionName}
+        placeholder="Size"
+        aria-label="Option name"
+        maxLength={40}
+      />
+      <input
+        name="optionValue"
+        type="text"
+        defaultValue={existingOptionValue}
+        placeholder="M"
+        aria-label="Option value"
+        maxLength={40}
+      />
       <input
         name="priceBirr"
         type="number"
@@ -93,12 +112,22 @@ export function AddVariantForm({ productId }: { productId: string }) {
   return (
     <form
       action={formAction}
-      style={{ display: "grid", gridTemplateColumns: "1fr 1fr 100px 100px auto", gap: "var(--space-3)", alignItems: "end", marginTop: "var(--space-4)" }}
+      style={{ display: "grid", gridTemplateColumns: "1fr 1fr 100px 100px 100px auto", gap: "var(--space-3)", alignItems: "end", marginTop: "var(--space-4)" }}
     >
       <input type="hidden" name="productId" value={productId} />
       <div className="form-field" style={{ margin: 0 }}>
         <label htmlFor="new-variant-title">Variant name</label>
         <input id="new-variant-title" name="title" type="text" placeholder="e.g. Black / L" />
+      </div>
+      <div className="form-field" style={{ margin: 0, display: "flex", gap: "var(--space-2)" }}>
+        <div>
+          <label htmlFor="new-variant-option-name">Option name</label>
+          <input id="new-variant-option-name" name="optionName" type="text" placeholder="Size" />
+        </div>
+        <div>
+          <label htmlFor="new-variant-option-value">Value</label>
+          <input id="new-variant-option-value" name="optionValue" type="text" placeholder="L" />
+        </div>
       </div>
       <div className="form-field" style={{ margin: 0 }}>
         <label htmlFor="new-variant-sku">SKU</label>
