@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export function SiteFooter() {
   return (
     <footer className="site-footer">
@@ -10,7 +12,7 @@ export function SiteFooter() {
           <p className="site-footer__heading">Help</p>
           <p>Shipping</p>
           <p>Returns</p>
-          <p>Order lookup</p>
+          <p><Link href="/track">Order lookup</Link></p>
         </div>
         <div className="site-footer__col">
           <p className="site-footer__heading">Payment</p>

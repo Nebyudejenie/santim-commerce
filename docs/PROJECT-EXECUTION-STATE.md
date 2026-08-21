@@ -890,14 +890,53 @@ proved out this session — do not relax these just because the scope grew)
       genuinely cancellable order shows the button; an already-shipped
       order (same buyer, real FULFILLED order) correctly does not.
 
-### Current status / where to resume (2026-08-21, commit `6011bcd`)
+- [x] **Guest order lookup** — confirmed the site footer's "Help" column had
+      shipped `<p>Order lookup</p>` as inert, unlinked text since the very
+      first version of the footer — a promise with nothing behind it.
+
+      A guest checkout has no session/account to scope an order to, so the
+      real credential this uses is the same pair every comparable
+      guest-tracking flow uses (eBay, Amazon guest checkout): order number +
+      the email address entered at checkout. `get-order-status.ts`'s own
+      existing comment already established that a bare order number
+      (Crockford Base32) is "hard to guess, not a secret" on its own — email
+      pairing is what keeps a guessed or intercepted order number from
+      being a full line-item/address lookup all by itself.
+
+      `getOrderForGuestLookup(orderNumber, email)` returns `null`
+      indistinguishably for BOTH "no such order" and "right order, wrong
+      email" — the same ownership-scoped discipline used everywhere else in
+      this codebase, so the page can never be used as an email-enumeration
+      oracle. New public, read-only `/track` page (GET query params,
+      bookmarkable, matching `/search`'s own convention) showing line
+      items, fulfilment/return status per line, the full price breakdown,
+      and payment status — deliberately does NOT expose cancel/return
+      actions, since both `cancelOrder` and `requestReturn` are keyed on a
+      real `userId` a guest session doesn't have; the page instead prompts
+      sign-in/register with the same email to manage the order further, a
+      correct v1 scope rather than a half-built guest-auth workaround.
+      Footer's "Order lookup" is now a real `<Link href="/track">`.
+
+      5 new integration tests: matching pair returns the order; wrong email
+      on a real order number returns null; nonexistent order number returns
+      null; case/whitespace-tolerant email matching; empty inputs short-
+      circuit without querying. Full regression suite (72 unit, 163
+      integration) and a production build all pass. Verified end-to-end
+      over real HTTP against a live server with a real seeded order: footer
+      renders a genuine `<a href="/track">`; the bare form page shows no
+      false "not found" state; a correct pair renders the order number,
+      product title, and exact price (123.45 ETB); a wrong email on the
+      same real order number renders only the generic not-found message
+      with zero order data leaked; a nonexistent order number renders the
+      same not-found message.
+
+### Current status / where to resume (2026-08-21, commit `PENDING`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
 watched to a real, uncontested completion, per this session's own working
-discipline above. Full regression suite (typecheck, lint, unit,
-integration — run twice to rule out flakiness) and a production build all
-pass cleanly as of this commit.
+discipline above. Full regression suite (typecheck, lint, 72 unit, 163
+integration) and a production build all pass cleanly as of this commit.
 
 Deliberately still out of scope, not oversights — both genuinely blocked
 on real external state this environment doesn't have, not scoping
@@ -918,7 +957,7 @@ that found every feature built this session — grep the codebase for what
 a real marketplace needs, don't assume; several rounds of this already
 found wishlist, notifications, seller coupons, product Q&A, bulk CSV
 import/export, back-in-stock notifications, admin payout recording,
-customer order cancellation, and
+customer order cancellation, guest order lookup, and
 more, each confirmed genuinely absent before being built). No further
 specific candidate is
 currently queued — gift cards / store credit was considered and
