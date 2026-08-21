@@ -1589,7 +1589,7 @@ proved out this session — do not relax these just because the scope grew)
       each isolate the right one, and confirmed a fulfilment-status
       filter isolates the right one too.
 
-### Current status / where to resume (2026-08-21, commit `PENDING`)
+### Current status / where to resume (2026-08-21, commit `fc3d601`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
