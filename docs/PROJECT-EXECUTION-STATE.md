@@ -1603,7 +1603,7 @@ proved out this session — do not relax these just because the scope grew)
       title each isolate the right one, and a non-matching search
       correctly shows "No matching orders."
 
-### Current status / where to resume (2026-08-21, commit `PENDING`)
+### Current status / where to resume (2026-08-21, commit `431e1d1`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
