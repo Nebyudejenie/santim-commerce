@@ -1551,12 +1551,32 @@ proved out this session — do not relax these just because the scope grew)
       removing it via Next's actual Server Action protocol, and the
       question confirmed gone from the public page immediately after.
 
-### Current status / where to resume (2026-08-21, commit `1f16e80`)
+- [x] **Self-service data export** — the natural companion to self-service
+      account deletion, confirmed genuinely absent. New
+      `exportUserData(userId)`, scoped entirely to the calling user's own
+      id (profile, addresses, orders with lines, reviews, wishlist,
+      questions asked). New `GET /account/data-export` Route Handler
+      (mirrors `/sell/products/export`'s own established convention —
+      `requireUser`, real `Content-Disposition: attachment`), a single
+      JSON file. Linked from `/account/security`, including a pointer to
+      it from the Danger zone copy ("consider downloading your data
+      before you delete your account").
+
+      1 new integration test proving the scoping property that matters
+      most: another user's address/order/wishlist item never leaks into
+      someone else's export. Full regression suite (72 unit, 210
+      integration) and a production build pass. Verified end-to-end over
+      real HTTP: a real signed-in user downloading a real JSON file with
+      the correct headers and their own real profile/address data, and
+      an unauthenticated request to the same route confirmed redirected
+      to login.
+
+### Current status / where to resume (2026-08-21, commit `PENDING`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
 watched to a real, uncontested completion, per this session's own working
-discipline above. Full regression suite (typecheck, lint, 72 unit, 209
+discipline above. Full regression suite (typecheck, lint, 72 unit, 210
 integration) and a production build all pass cleanly as of this commit.
 
 Deliberately still out of scope, not oversights — both genuinely blocked
@@ -1589,7 +1609,7 @@ reset, self-service password change, admin customer suspension, seller
 self-service storefront settings, order delivery notes, seller low-stock
 alerts, compare-at pricing, SEO title/description, self-service account
 deletion, related products, the ProductCard low-stock badge fix, an
-admin audit log, product Q&A moderation, and
+admin audit log, product Q&A moderation, self-service data export, and
 more, each confirmed genuinely absent before being built). No further
 specific candidate is currently queued — the systematic dead-field
 audit's one remaining finding, `User.emailVerifiedAt`, is confirmed dead
