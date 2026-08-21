@@ -1429,7 +1429,7 @@ proved out this session — do not relax these just because the scope grew)
       gets; and the admin list/detail pages correctly showing "Deleted"
       with the recovery/suspension controls hidden.
 
-### Current status / where to resume (2026-08-21, commit `PENDING`)
+### Current status / where to resume (2026-08-21, commit `dd7ab67`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
