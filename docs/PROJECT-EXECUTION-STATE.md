@@ -1530,7 +1530,7 @@ proved out this session — do not relax these just because the scope grew)
       HTTP; the service layer's own 3 tests plus this one full round
       trip cover the pattern's correctness.)
 
-### Current status / where to resume (2026-08-21, commit `PENDING`)
+### Current status / where to resume (2026-08-21, commit `7ea3fb6`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
