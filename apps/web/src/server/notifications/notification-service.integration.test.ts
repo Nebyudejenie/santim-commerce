@@ -22,6 +22,7 @@ import {
   notifyOrderPaid,
   notifyOrderPaymentFailed,
   notifyReturnResolved,
+  notifySellersOfNewSale,
 } from "./notification-service.ts";
 
 const prisma = new PrismaClient();
@@ -281,6 +282,70 @@ test("notifyLowStock's dedupeKey includes alertCount, so a redelivered event and
 
   list = await listNotificationsForUser(seller.ownerId);
   assert.equal(list.length, 2, "a genuinely new alertCount must produce a real second notification, not be silently swallowed");
+});
+
+test("notifySellersOfNewSale notifies the real seller who owns the sold product, not the buyer", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const userId = await makeBuyer(suffix);
+  const { sellerId, variantId } = await makeSellerWithProduct(suffix);
+  const seller = await prisma.seller.findUniqueOrThrow({ where: { id: sellerId } });
+  const { orderId } = await makeOrder(suffix, userId, sellerId, variantId);
+
+  await notifySellersOfNewSale(orderId);
+
+  const sellerNotifications = await listNotificationsForUser(seller.ownerId);
+  assert.equal(sellerNotifications.length, 1);
+  assert.equal(sellerNotifications[0]!.type, "NEW_SALE");
+
+  const buyerNotifications = await listNotificationsForUser(userId);
+  assert.equal(buyerNotifications.filter((n) => n.type === "NEW_SALE").length, 0, "the buyer must never get their own sale notification");
+});
+
+test("notifySellersOfNewSale fans out to every distinct seller in a real multi-vendor order, exactly once each", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const userId = await makeBuyer(suffix);
+  const { sellerId: sellerA, variantId: variantA } = await makeSellerWithProduct(`${suffix}-a`);
+  const { sellerId: sellerB, variantId: variantB } = await makeSellerWithProduct(`${suffix}-b`);
+  const ownerA = await prisma.seller.findUniqueOrThrow({ where: { id: sellerA } });
+  const ownerB = await prisma.seller.findUniqueOrThrow({ where: { id: sellerB } });
+
+  const order = await prisma.order.create({
+    data: {
+      orderNumber: `SC-NOTIF-MULTI-${suffix}`.toUpperCase(),
+      userId,
+      email: "buyer@example.et",
+      phone: "+251900000000",
+      status: "PAID",
+      subtotalSantim: 20_000,
+      totalSantim: 20_000,
+      paidAt: new Date(),
+      lines: {
+        create: [
+          { variantId: variantA, sellerId: sellerA, sku: `NT-${suffix}-a`, productTitle: "Item A", variantTitle: "Default", unitPriceSantim: 10_000, quantity: 1, lineTotalSantim: 10_000 },
+          { variantId: variantB, sellerId: sellerB, sku: `NT-${suffix}-b`, productTitle: "Item B", variantTitle: "Default", unitPriceSantim: 10_000, quantity: 1, lineTotalSantim: 10_000 },
+        ],
+      },
+    },
+  });
+
+  await notifySellersOfNewSale(order.id);
+
+  assert.equal((await listNotificationsForUser(ownerA.ownerId)).length, 1, "seller A must be notified exactly once");
+  assert.equal((await listNotificationsForUser(ownerB.ownerId)).length, 1, "seller B must be notified exactly once, independently of seller A");
+});
+
+test("notifySellersOfNewSale is idempotent under real outbox redelivery — no duplicate per seller", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const userId = await makeBuyer(suffix);
+  const { sellerId, variantId } = await makeSellerWithProduct(suffix);
+  const seller = await prisma.seller.findUniqueOrThrow({ where: { id: sellerId } });
+  const { orderId } = await makeOrder(suffix, userId, sellerId, variantId);
+
+  await notifySellersOfNewSale(orderId);
+  await notifySellersOfNewSale(orderId); // simulates a redelivered "order.paid" outbox message
+
+  const notifications = await listNotificationsForUser(seller.ownerId);
+  assert.equal(notifications.length, 1, "a redelivered order.paid event must not double-notify the same seller");
 });
 
 test("markAsRead only affects the real owner's own notification, and markAllAsRead clears every unread one", async () => {

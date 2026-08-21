@@ -1230,6 +1230,7 @@ enum NotificationType {
   QUESTION_ANSWERED
   BACK_IN_STOCK
   LOW_STOCK
+  NEW_SALE
 }
 
 /// At most one shipping label per order — `orderId` is `@unique`, not just

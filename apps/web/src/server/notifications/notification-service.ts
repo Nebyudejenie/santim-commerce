@@ -34,7 +34,8 @@ async function createOnce(input: {
     | "RETURN_APPROVED"
     | "RETURN_REJECTED"
     | "QUESTION_ANSWERED"
-    | "LOW_STOCK";
+    | "LOW_STOCK"
+    | "NEW_SALE";
   title: string;
   body: string;
   link?: string;
@@ -217,6 +218,44 @@ export async function notifyLowStock(variantId: string, alertCount: number): Pro
     link: `/sell/products/${variant.productId}`,
     dedupeKey: `low-stock:${variantId}:${alertCount}`,
   });
+}
+
+/**
+ * Confirmed absent before this: `notifyOrderPaid` above only ever
+ * notified the BUYER — a seller had zero real-time signal that they'd
+ * made a sale, only whatever they happened to notice next time they
+ * checked `/sell/orders`. Fans out to every DISTINCT seller with at
+ * least one line in this order (a real, multi-vendor cart is genuinely
+ * possible), one notification each — unlike `notifyBackInStock`'s fan-
+ * out, there's no per-recipient "request" row to re-arm here, so a
+ * plain `createOnce` per seller, keyed on (orderId, sellerId), is
+ * enough: an order is paid exactly once, never re-armed the way a
+ * stockout/restock cycle is.
+ */
+export async function notifySellersOfNewSale(orderId: string): Promise<void> {
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    select: { orderNumber: true, lines: { select: { sellerId: true, quantity: true } } },
+  });
+  if (!order) return;
+
+  const sellerIds = [...new Set(order.lines.map((l) => l.sellerId))];
+  const sellers = await prisma.seller.findMany({
+    where: { id: { in: sellerIds } },
+    select: { id: true, ownerId: true },
+  });
+
+  for (const seller of sellers) {
+    const lineCount = order.lines.filter((l) => l.sellerId === seller.id).length;
+    await createOnce({
+      userId: seller.ownerId,
+      type: "NEW_SALE",
+      title: `You made a sale — order ${order.orderNumber}`,
+      body: `${lineCount} item${lineCount === 1 ? "" : "s"} from order ${order.orderNumber} just sold.`,
+      link: `/sell/orders/${order.orderNumber}`,
+      dedupeKey: `new-sale:${orderId}:${seller.id}`,
+    });
+  }
 }
 
 export async function listNotificationsForUser(userId: string, take = 50) {

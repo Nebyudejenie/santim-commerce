@@ -1655,12 +1655,38 @@ proved out this session — do not relax these just because the scope grew)
       one real toggle; and reopening restoring the real product page
       immediately.
 
-### Current status / where to resume (2026-08-21, commit `90921f5`)
+- [x] **Seller "new sale" notification** — confirmed absent: `notifyOrderPaid`
+      only ever notified the BUYER; a seller had zero real-time signal
+      that they'd made a sale, only whatever they noticed next time they
+      happened to check `/sell/orders`. New `NotificationType.NEW_SALE`
+      and `notifySellersOfNewSale(orderId)`, wired into the exact same
+      `order.paid` worker-dispatch site `notifyOrderPaid` already uses.
+      Fans out to every DISTINCT seller with a line in the order — a
+      real multi-vendor cart is genuinely possible — one notification
+      each, keyed on `(orderId, sellerId)`; simpler than
+      `notifyBackInStock`'s own fan-out since there's no per-recipient
+      request row to re-arm — an order is paid exactly once.
+
+      3 new integration tests (notifies the real seller, never the
+      buyer; fans out correctly across a real two-seller order, exactly
+      once each; idempotent under real outbox redelivery). Full
+      regression suite (72 unit, 220 integration, run twice given this
+      touches the payment-critical worker dispatch path) and a
+      production build pass. The trigger side (the worker actually
+      consuming a real `order.paid` message) needs the same real
+      SantimPay env config this environment doesn't carry, already
+      documented for every other worker-triggered feature this session —
+      verified instead by calling the real function directly against a
+      real seeded multi-line order, then confirming over real HTTP that
+      the resulting real notification renders correctly on the seller's
+      own `/account/notifications` page.
+
+### Current status / where to resume (2026-08-21, commit `PENDING`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
 watched to a real, uncontested completion, per this session's own working
-discipline above. Full regression suite (typecheck, lint, 72 unit, 217
+discipline above. Full regression suite (typecheck, lint, 72 unit, 220
 integration) and a production build all pass cleanly as of this commit.
 
 Deliberately still out of scope, not oversights — both genuinely blocked
@@ -1693,7 +1719,7 @@ reset, self-service password change, admin customer suspension, seller
 self-service storefront settings, order delivery notes, seller low-stock
 alerts, compare-at pricing, SEO title/description, self-service account
 deletion, related products, the ProductCard low-stock badge fix, an
-admin audit log, product Q&A moderation, self-service data export, seller order search/filter, customer order search, admin users CSV export, seller vacation mode, and
+admin audit log, product Q&A moderation, self-service data export, seller order search/filter, customer order search, admin users CSV export, seller vacation mode, seller "new sale" notification, and
 more, each confirmed genuinely absent before being built). No further
 specific candidate is currently queued — the systematic dead-field
 audit's one remaining finding, `User.emailVerifiedAt`, is confirmed dead

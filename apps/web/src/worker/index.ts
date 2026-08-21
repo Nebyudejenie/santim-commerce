@@ -36,6 +36,7 @@ import { createLedgerEntriesForOrder } from "../server/orders/settlement-service
 import {
   notifyBackInStock,
   notifyLowStock,
+  notifySellersOfNewSale,
   notifyOrderLineFulfilled,
   notifyOrderPaid,
   notifyOrderPaymentFailed,
@@ -239,6 +240,7 @@ async function deliver(topic: string, payload: unknown): Promise<void> {
     const { orderId } = payload as { orderId: string };
     await createLedgerEntriesForOrder(orderId);
     await notifyOrderPaid(orderId);
+    await notifySellersOfNewSale(orderId);
   } else if (topic === "order.payment_failed") {
     const { orderId } = payload as { orderId: string };
     await notifyOrderPaymentFailed(orderId);
