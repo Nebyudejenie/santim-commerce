@@ -288,9 +288,33 @@ test("setProductFeaturedAsAdmin is the only way to mark a product featured — a
   assert.equal(afterUnfeatured.featured, false);
 });
 
+test("updateVariant enqueues a real price-drop check on a genuine decrease, but never on an increase or a no-op update", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const sellerId = await makeSeller(`pricedrop-${suffix}`);
+  const product = await createProduct(sellerId, baseInput(`pricedrop-${suffix}`));
+  const owned = await getSellerProduct(sellerId, product.id);
+  const variantId = owned!.variants[0]!.id;
+
+  // Raising the price must never enqueue anything.
+  await updateVariant(sellerId, variantId, { priceBirr: "249.99" });
+  const afterIncrease = await prisma.outboxMessage.findMany({ where: { topic: "product.price_dropped" } });
+  assert.equal(afterIncrease.filter((m) => (m.payload as { productId: string }).productId === product.id).length, 0);
+
+  // An update that touches other fields but not price must not enqueue either.
+  await updateVariant(sellerId, variantId, { active: true });
+  const afterNoop = await prisma.outboxMessage.findMany({ where: { topic: "product.price_dropped" } });
+  assert.equal(afterNoop.filter((m) => (m.payload as { productId: string }).productId === product.id).length, 0);
+
+  // A genuine decrease is what actually enqueues the real check.
+  await updateVariant(sellerId, variantId, { priceBirr: "149.99" });
+  const afterDecrease = await prisma.outboxMessage.findMany({ where: { topic: "product.price_dropped" } });
+  assert.equal(afterDecrease.filter((m) => (m.payload as { productId: string }).productId === product.id).length, 1);
+});
+
 test.after(async () => {
   await prisma.outboxMessage.deleteMany({ where: { topic: "variant.restocked" } });
   await prisma.outboxMessage.deleteMany({ where: { topic: "variant.low_stock" } });
+  await prisma.outboxMessage.deleteMany({ where: { topic: "product.price_dropped" } });
   await prisma.backInStockRequest.deleteMany({ where: { variant: { product: { seller: { slug: { startsWith: "listing-test-" } } } } } });
   await prisma.variant.deleteMany({ where: { product: { seller: { slug: { startsWith: "listing-test-" } } } } });
   await prisma.product.deleteMany({ where: { seller: { slug: { startsWith: "listing-test-" } } } });

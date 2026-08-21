@@ -59,6 +59,11 @@ export default async function WishlistPage() {
                   <p className="product-card__price">
                     {Number.isFinite(price) ? <Money santim={price} /> : "—"}
                   </p>
+                  {Number.isFinite(price) && price < item.priceAtAddSantim && (
+                    <p style={{ color: "var(--success)", fontSize: "var(--text-xs)", marginTop: "var(--space-1)" }}>
+                      Price dropped from <Money santim={item.priceAtAddSantim} />
+                    </p>
+                  )}
                   <div style={{ marginTop: "var(--space-3)" }}>
                     <WishlistButton productId={product.id} productSlug={product.slug} initialWishlisted={true} />
                   </div>

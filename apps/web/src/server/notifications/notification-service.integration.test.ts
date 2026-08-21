@@ -22,6 +22,7 @@ import {
   notifyOrderLineFulfilled,
   notifyOrderPaid,
   notifyOrderPaymentFailed,
+  notifyPriceDrop,
   notifyReturnResolved,
   notifySellersOfNewSale,
 } from "./notification-service.ts";
@@ -377,6 +378,78 @@ test("markAsRead only affects the real owner's own notification, and markAllAsRe
   assert.equal(await getUnreadCount(userId), 0);
 });
 
+async function makeWishlister(suffix: string, productId: string, priceAtAddSantim: number) {
+  const user = await prisma.user.create({ data: { email: `notif-wishlist-${suffix}@example.et`, role: "CUSTOMER" } });
+  const item = await prisma.wishlistItem.create({ data: { userId: user.id, productId, priceAtAddSantim } });
+  return { userId: user.id, itemId: item.id };
+}
+
+test("notifyPriceDrop notifies a real wishlister whose add-time price the real current price now beats", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const { variantId } = await makeSellerWithProduct(suffix);
+  const variant = await prisma.variant.findUniqueOrThrow({ where: { id: variantId } });
+  // Wishlisted at 15_000, when the real current price (seeded at 10_000
+  // by makeSellerWithProduct) is already lower — notifyPriceDrop reads
+  // whatever the real current price is, the same as the real trigger
+  // site (listing-service.ts's updateVariant) would after a real cut.
+  const { userId } = await makeWishlister(suffix, variant.productId, 15_000);
+
+  await notifyPriceDrop(variant.productId);
+
+  const list = await listNotificationsForUser(userId);
+  assert.equal(list.length, 1);
+  assert.equal(list[0]!.type, "PRICE_DROP");
+
+  const row = await prisma.wishlistItem.findUniqueOrThrow({ where: { userId_productId: { userId, productId: variant.productId } } });
+  assert.equal(row.lastNotifiedPriceSantim, 10_000, "the re-arm marker must track the real price that triggered this notification");
+});
+
+test("notifyPriceDrop does NOT notify a wishlister whose add-time price the current price never actually beats", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const { variantId } = await makeSellerWithProduct(suffix);
+  const variant = await prisma.variant.findUniqueOrThrow({ where: { id: variantId } });
+  // Wishlisted at a price LOWER than the real current price — no real drop happened for them.
+  const { userId } = await makeWishlister(suffix, variant.productId, 5_000);
+
+  await notifyPriceDrop(variant.productId);
+
+  const list = await listNotificationsForUser(userId);
+  assert.equal(list.length, 0);
+});
+
+test("notifyPriceDrop re-notifies on a FURTHER drop below the last notified price, but not on a bounce back up to it", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const { variantId } = await makeSellerWithProduct(suffix);
+  const variant = await prisma.variant.findUniqueOrThrow({ where: { id: variantId } });
+  const { userId } = await makeWishlister(suffix, variant.productId, 20_000);
+
+  await notifyPriceDrop(variant.productId); // real price 10_000 — first drop, notifies
+  assert.equal((await listNotificationsForUser(userId)).length, 1);
+
+  // Price rises back toward (but not above) the last notified price — must not re-notify.
+  await prisma.variant.update({ where: { id: variantId }, data: { priceSantim: 10_000 } });
+  await notifyPriceDrop(variant.productId);
+  assert.equal((await listNotificationsForUser(userId)).length, 1, "no real further drop happened yet");
+
+  // A genuinely deeper drop must notify again, with its own real dedupeKey.
+  await prisma.variant.update({ where: { id: variantId }, data: { priceSantim: 7_000 } });
+  await notifyPriceDrop(variant.productId);
+  assert.equal((await listNotificationsForUser(userId)).length, 2, "a further real drop must notify again");
+});
+
+test("notifyPriceDrop is idempotent under real outbox redelivery — no duplicate for the same price", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const { variantId } = await makeSellerWithProduct(suffix);
+  const variant = await prisma.variant.findUniqueOrThrow({ where: { id: variantId } });
+  const { userId } = await makeWishlister(suffix, variant.productId, 15_000);
+
+  await notifyPriceDrop(variant.productId);
+  await notifyPriceDrop(variant.productId); // simulates a redelivered "product.price_dropped" outbox message
+
+  const list = await listNotificationsForUser(userId);
+  assert.equal(list.length, 1, "a redelivered event at the same real price must not double-notify");
+});
+
 async function makeThreadWithMessage(
   orderId: string,
   sellerId: string,
@@ -451,6 +524,7 @@ test.after(async () => {
   await prisma.message.deleteMany({ where: { thread: { order: { orderNumber: { startsWith: "SC-NOTIF-" } } } } });
   await prisma.messageThread.deleteMany({ where: { order: { orderNumber: { startsWith: "SC-NOTIF-" } } } });
   await prisma.notification.deleteMany({ where: { user: { email: { startsWith: "notif-" } } } });
+  await prisma.wishlistItem.deleteMany({ where: { product: { slug: { startsWith: "notif-test-" } } } });
   await prisma.backInStockRequest.deleteMany({ where: { variant: { product: { slug: { startsWith: "notif-test-" } } } } });
   await prisma.returnRequest.deleteMany({ where: { order: { orderNumber: { startsWith: "SC-NOTIF-" } } } });
   await prisma.orderLine.deleteMany({ where: { order: { orderNumber: { startsWith: "SC-NOTIF-" } } } });
@@ -460,7 +534,13 @@ test.after(async () => {
   await prisma.product.deleteMany({ where: { slug: { startsWith: "notif-test-" } } });
   await prisma.seller.deleteMany({ where: { slug: { startsWith: "notif-test-seller-" } } });
   await prisma.user.deleteMany({
-    where: { OR: [{ email: { startsWith: "notif-buyer-" } }, { email: { startsWith: "notif-seller-" } }] },
+    where: {
+      OR: [
+        { email: { startsWith: "notif-buyer-" } },
+        { email: { startsWith: "notif-seller-" } },
+        { email: { startsWith: "notif-wishlist-" } },
+      ],
+    },
   });
   await prisma.$disconnect();
 });

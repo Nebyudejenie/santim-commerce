@@ -1915,12 +1915,71 @@ proved out this session — do not relax these just because the scope grew)
       `LoginAttempt` row behind. All seeded data and verify scripts
       cleaned up afterward.
 
-### Current status / where to resume (2026-08-22, commit `17a4feb`)
+- [x] **Wishlist price-drop alerts** — confirmed absent by grep: a
+      product's price could fall after a buyer wishlisted it with zero
+      real-time signal, only whatever they happened to notice next time
+      they revisited it. New `WishlistItem.priceAtAddSantim` (a real,
+      never-updated-after-creation snapshot, same discipline as
+      `OrderLine`'s own price fields) and `lastNotifiedPriceSantim` (the
+      re-arm marker, mirroring `Inventory.lowStockAlertedAt`) — WishlistItem
+      itself doubles as the per-recipient "interest" row, no separate
+      request table needed unlike back-in-stock's real stockout/restock
+      cycle.
+
+      `toggleWishlist` snapshots the product's real lowest-active-variant
+      price (reusing `catalogue-service.ts`'s existing `fromPriceSantim`,
+      the same function the grid/PDP already use for "from ETB X"
+      display — no new pricing logic invented). `listing-service.ts`'s
+      `updateVariant` detects a genuine price DECREASE and enqueues
+      `product.price_dropped` inside the SAME transaction as the price
+      write itself (wrapped in `$transaction` only when the price
+      actually drops — an increase or an unrelated field update needs no
+      transaction, nothing to enqueue). New `notifyPriceDrop` re-checks
+      the real comparison at DELIVERY time, not just at enqueue — a
+      redelivered or delayed outbox message must never fire against
+      stale, since-changed pricing, the same discipline
+      `back-in-stock-service.ts`'s own consumer already uses. Compares
+      each wishlister's current price against `lastNotifiedPriceSantim ??
+      priceAtAddSantim` — a FURTHER drop notifies again; a bounce back up
+      that doesn't beat the last notified low does not.
+
+      The wishlist page (`/account/wishlist`) now shows a real "Price
+      dropped from ETB X" line whenever the current price beats the
+      snapshot — visible immediately, not only once a notification fires.
+      Migration backfills `priceAtAddSantim` for any real PRE-EXISTING
+      wishlist row using each product's CURRENT lowest price (the best
+      available approximation — there is no real history of what it cost
+      when originally saved), never a bare 0 default, before locking the
+      column NOT NULL.
+
+      6 new integration tests: `listing-service.integration.test.ts`
+      (a price increase or unrelated update enqueues nothing; a genuine
+      decrease enqueues exactly once), `wishlist-service.integration.test.ts`
+      (the real snapshot matches the real current price at add time), and
+      4 in `notification-service.integration.test.ts` for `notifyPriceDrop`
+      (notifies when the current price genuinely beats the add-time
+      snapshot; does NOT notify when it never actually beat it; a further
+      real drop re-notifies while a bounce back up does not; idempotent
+      under real outbox redelivery at the same price). Full regression
+      (72 unit, 251 integration, run twice given this touches the seller
+      listing/pricing path) and a production build pass. Real HTTP E2E:
+      wishlisted a real seeded product as a real buyer (confirmed the
+      real `200.00 ETB` snapshot persisted), cut its real price to
+      `150.00 ETB` through the real seller edit form, confirmed the real
+      `product.price_dropped` outbox message, called `notifyPriceDrop`
+      directly (the worker trigger itself needs the same SantimPay env
+      config this environment doesn't carry, already documented for every
+      other worker-triggered feature this session), then confirmed over
+      real HTTP that the buyer's real notification shows "ETB 150.00" and
+      their real `/account/wishlist` page shows "Price dropped from ETB
+      200.00". All seeded data and verify scripts cleaned up afterward.
+
+### Current status / where to resume (2026-08-22, commit `PENDING`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
 watched to a real, uncontested completion, per this session's own working
-discipline above. Full regression suite (typecheck, lint, 72 unit, 245
+discipline above. Full regression suite (typecheck, lint, 72 unit, 251
 integration) and a production build all pass cleanly as of this commit.
 
 Deliberately still out of scope, not oversights — both genuinely blocked
@@ -1955,7 +2014,8 @@ alerts, compare-at pricing, SEO title/description, self-service account
 deletion, related products, the ProductCard low-stock badge fix, an
 admin audit log, product Q&A moderation, self-service data export, seller order search/filter, customer order search, admin users CSV export, seller vacation mode, seller "new sale" notification, buyer-seller order
 messaging, admin message moderation, return dispute escalation,
-application-level login brute-force protection, and more, each confirmed genuinely absent before being built). No further
+application-level login brute-force protection, wishlist price-drop
+alerts, and more, each confirmed genuinely absent before being built). No further
 specific candidate is currently queued — the systematic dead-field
 audit's one remaining finding, `User.emailVerifiedAt`, is confirmed dead
 but correctly out of scope (see the compare-at entry above for why).

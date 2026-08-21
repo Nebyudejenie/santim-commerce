@@ -30,8 +30,8 @@ test("exportUserData returns only the calling user's own data, never another use
   const product = await prisma.product.create({
     data: { sellerId: seller.id, slug: `dataexport-product-${suffix}`, title: "Data Export Item", description: "d", status: "ACTIVE" },
   });
-  await prisma.wishlistItem.create({ data: { userId: user.id, productId: product.id } });
-  await prisma.wishlistItem.create({ data: { userId: stranger.id, productId: product.id } });
+  await prisma.wishlistItem.create({ data: { userId: user.id, productId: product.id, priceAtAddSantim: 10_000 } });
+  await prisma.wishlistItem.create({ data: { userId: stranger.id, productId: product.id, priceAtAddSantim: 10_000 } });
 
   const data = await exportUserData(user.id);
 

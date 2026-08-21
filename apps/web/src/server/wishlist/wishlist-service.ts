@@ -16,6 +16,7 @@
  */
 
 import { prisma } from "../db.js";
+import { fromPriceSantim } from "../catalogue/catalogue-service.js";
 
 function isUniqueViolation(error: unknown): boolean {
   return typeof error === "object" && error !== null && (error as { code?: string }).code === "P2002";
@@ -35,8 +36,17 @@ export async function toggleWishlist(userId: string, productId: string): Promise
     return { wishlisted: false };
   }
 
+  // Snapshotted once, at add time — see WishlistItem.priceAtAddSantim's
+  // own schema comment (price-drop-service.ts's real baseline). A product
+  // with zero active variants (shouldn't happen via the real UI — see
+  // listing-service.ts's own "publish requires >=1 variant" comment) falls
+  // back to 0 rather than Infinity, purely defensive.
+  const variants = await prisma.variant.findMany({ where: { productId, active: true }, select: { priceSantim: true } });
+  const currentPrice = fromPriceSantim(variants);
+  const priceAtAddSantim = Number.isFinite(currentPrice) ? currentPrice : 0;
+
   try {
-    await prisma.wishlistItem.create({ data: { userId, productId } });
+    await prisma.wishlistItem.create({ data: { userId, productId, priceAtAddSantim } });
     return { wishlisted: true };
   } catch (error) {
     if (isUniqueViolation(error)) {

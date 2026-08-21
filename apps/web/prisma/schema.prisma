@@ -486,6 +486,20 @@ model WishlistItem {
   productId String
   product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
+  /// Real snapshot of the product's lowest active-variant price (see
+  /// catalogue-service.ts's `fromPriceSantim`) at the moment of
+  /// wishlisting — never updated afterward, a historical fact for
+  /// "you saved this at X" display, same snapshot discipline as
+  /// OrderLine's own price fields.
+  priceAtAddSantim Int
+
+  /// Re-arm marker for price-drop notifications, set to whichever price
+  /// last triggered one — a FURTHER drop below THIS (not the original
+  /// `priceAtAddSantim`) is what notifies again, same per-entity-flag
+  /// discipline as `Inventory.lowStockAlertedAt`. Null until the first
+  /// notification ever fires for this item.
+  lastNotifiedPriceSantim Int?
+
   createdAt DateTime @default(now())
 
   @@unique([userId, productId])
@@ -1278,6 +1292,7 @@ enum NotificationType {
   LOW_STOCK
   NEW_SALE
   NEW_MESSAGE
+  PRICE_DROP
 }
 
 /// At most one shipping label per order — `orderId` is `@unique`, not just

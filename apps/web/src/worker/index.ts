@@ -37,6 +37,7 @@ import {
   notifyBackInStock,
   notifyLowStock,
   notifyNewMessage,
+  notifyPriceDrop,
   notifySellersOfNewSale,
   notifyOrderLineFulfilled,
   notifyOrderPaid,
@@ -263,6 +264,9 @@ async function deliver(topic: string, payload: unknown): Promise<void> {
   } else if (topic === "message.sent") {
     const { messageId } = payload as { messageId: string };
     await notifyNewMessage(messageId);
+  } else if (topic === "product.price_dropped") {
+    const { productId } = payload as { productId: string };
+    await notifyPriceDrop(productId);
   }
   logger.info("outbox.delivered", { topic, payload });
 }

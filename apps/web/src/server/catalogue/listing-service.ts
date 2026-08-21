@@ -18,6 +18,7 @@ import { prisma } from "../db.js";
 import { logger } from "../observability/logger.js";
 import { enqueueBackInStockCheck } from "./back-in-stock-service.js";
 import { enqueueLowStockCheck } from "./low-stock-service.js";
+import { enqueuePriceDropCheck } from "./price-drop-service.js";
 
 export class ListingError extends Error {
   override name = "ListingError";
@@ -276,7 +277,19 @@ export async function updateVariant(sellerId: string, variantId: string, input: 
     data.compareAtSantim = compareAtSantim;
   }
 
-  const updated = await prisma.variant.update({ where: { id: variantId }, data });
+  // Wrapped in a transaction only when the price actually moves down —
+  // side effects through the outbox, never a direct call outside the
+  // transaction that made the state change real, same discipline as the
+  // inventory transaction below. A price increase, or no price change at
+  // all, needs no transaction here — nothing to enqueue.
+  const priceDropped = typeof data.priceSantim === "number" && data.priceSantim < variant.priceSantim;
+  const updated = priceDropped
+    ? await prisma.$transaction(async (tx) => {
+        const result = await tx.variant.update({ where: { id: variantId }, data });
+        await enqueuePriceDropCheck(tx, variant.productId);
+        return result;
+      })
+    : await prisma.variant.update({ where: { id: variantId }, data });
 
   if (input.onHand !== undefined || input.lowStockThreshold !== undefined) {
     const inventoryData: Record<string, number> = {};

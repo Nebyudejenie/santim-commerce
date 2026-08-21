@@ -18,7 +18,9 @@
  * inbox exists for this order" is an expected, common case, not an error.
  */
 
+import { format, type Santim } from "@santim/santimpay/money";
 import { prisma } from "../db.js";
+import { fromPriceSantim } from "../catalogue/catalogue-service.js";
 import { logger } from "../observability/logger.js";
 
 function isUniqueViolation(error: unknown): boolean {
@@ -36,7 +38,8 @@ async function createOnce(input: {
     | "QUESTION_ANSWERED"
     | "LOW_STOCK"
     | "NEW_SALE"
-    | "NEW_MESSAGE";
+    | "NEW_MESSAGE"
+    | "PRICE_DROP";
   title: string;
   body: string;
   link?: string;
@@ -184,6 +187,65 @@ export async function notifyBackInStock(variantId: string): Promise<void> {
       } catch (error) {
         if (!isUniqueViolation(error)) throw error;
         // Already notified this exact cycle — a redelivered outbox message, not a bug.
+      }
+    });
+  }
+}
+
+/**
+ * Confirmed absent before this: a product's price could fall after a
+ * buyer wishlisted it with zero real-time signal. WishlistItem itself
+ * doubles as the per-recipient "interest" row (no separate request table
+ * needed, unlike back-in-stock's real stockout/restock cycle) —
+ * `lastNotifiedPriceSantim` is the re-arm marker, mirroring
+ * `Inventory.lowStockAlertedAt`: only a price BELOW that (or below
+ * `priceAtAddSantim`, before any notification has ever fired) is a real
+ * drop worth telling someone about. The comparison re-runs here, at
+ * delivery time, not just once at enqueue — a redelivered or delayed
+ * outbox message must never notify against stale, since-changed pricing.
+ */
+export async function notifyPriceDrop(productId: string): Promise<void> {
+  const variants = await prisma.variant.findMany({
+    where: { productId, active: true },
+    select: { priceSantim: true },
+  });
+  if (variants.length === 0) return;
+  const currentPriceSantim = fromPriceSantim(variants);
+
+  const product = await prisma.product.findUnique({ where: { id: productId }, select: { title: true, slug: true } });
+  if (!product) return;
+
+  const candidates = await prisma.wishlistItem.findMany({
+    where: {
+      productId,
+      OR: [{ lastNotifiedPriceSantim: null }, { lastNotifiedPriceSantim: { gt: currentPriceSantim } }],
+    },
+    select: { id: true, userId: true, priceAtAddSantim: true, lastNotifiedPriceSantim: true },
+  });
+
+  for (const item of candidates) {
+    const baseline = item.lastNotifiedPriceSantim ?? item.priceAtAddSantim;
+    if (currentPriceSantim >= baseline) continue; // not actually a drop for THIS wishlister
+
+    await prisma.$transaction(async (tx) => {
+      const updated = await tx.wishlistItem.update({
+        where: { id: item.id },
+        data: { lastNotifiedPriceSantim: currentPriceSantim },
+      });
+      try {
+        await tx.notification.create({
+          data: {
+            userId: item.userId,
+            type: "PRICE_DROP",
+            title: `${product.title} dropped in price`,
+            body: `"${product.title}" is now ${format(currentPriceSantim as Santim)} — down from your wishlist price.`,
+            link: `/products/${product.slug}`,
+            dedupeKey: `price-drop:${updated.id}:${currentPriceSantim}`,
+          },
+        });
+      } catch (error) {
+        if (!isUniqueViolation(error)) throw error;
+        // Already notified at this exact price — a redelivered outbox message, not a bug.
       }
     });
   }

@@ -31,6 +31,14 @@ async function makeProduct(suffix: string, status: "ACTIVE" | "DRAFT" = "ACTIVE"
   return product.id;
 }
 
+async function makePricedProduct(suffix: string, priceSantim: number) {
+  const productId = await makeProduct(suffix);
+  await prisma.variant.create({
+    data: { productId, sku: `WISH-${suffix}`, title: "Default", priceSantim, active: true },
+  });
+  return productId;
+}
+
 test("toggling wishlists a product, then un-wishlists it on a second toggle", async () => {
   const suffix = Math.random().toString(36).slice(2, 8);
   const userId = await makeUser(suffix);
@@ -124,8 +132,21 @@ test("listWishlistedProductIds returns exactly the real saved ids, scoped to the
   assert.equal((await listWishlistedProductIds(stranger)).size, 1);
 });
 
+test("toggling wishlist snapshots the product's real current lowest-variant price", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const userId = await makeUser(suffix);
+  const productId = await makePricedProduct(suffix, 15_000);
+
+  await toggleWishlist(userId, productId);
+
+  const row = await prisma.wishlistItem.findUniqueOrThrow({ where: { userId_productId: { userId, productId } } });
+  assert.equal(row.priceAtAddSantim, 15_000);
+  assert.equal(row.lastNotifiedPriceSantim, null);
+});
+
 test.after(async () => {
   await prisma.wishlistItem.deleteMany({ where: { product: { slug: { startsWith: "wishlist-test-" } } } });
+  await prisma.variant.deleteMany({ where: { product: { slug: { startsWith: "wishlist-test-" } } } });
   await prisma.product.deleteMany({ where: { slug: { startsWith: "wishlist-test-" } } });
   await prisma.seller.deleteMany({ where: { slug: { startsWith: "wishlist-test-seller-" } } });
   await prisma.user.deleteMany({
