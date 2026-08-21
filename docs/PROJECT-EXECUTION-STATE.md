@@ -690,7 +690,41 @@ proved out this session — do not relax these just because the scope grew)
   (plain `node --experimental-strip-types`) to even run them, and it's
   also just better-tested code.
 
-### Current status / where to resume (2026-08-21, commit `1ccfcde`)
+- [x] **Bulk CSV import/export for sellers** — identified as the next
+      plausible candidate in this file's own prior "where to resume" note
+      and built. New `csv.ts` — a small, real, hand-written RFC4180-shaped
+      parser/writer (quoted fields, embedded commas/newlines, escaped
+      quotes), no external dependency, consistent with this codebase's
+      existing self-reliance for well-understood, boundedly-complex code
+      (`carrier-client.ts`'s mock is the same reasoning). 11 unit tests,
+      including a real round-trip property test (write then re-parse
+      returns the original data unchanged).
+
+      Import deliberately only CREATES new listings by calling
+      `createProduct` itself once per row — never a parallel, drift-prone
+      copy of that validation logic — so a CSV row is validated by exactly
+      the same rules a manual form submission is. A bad row never aborts
+      the batch: verified directly with a real 3-row CSV (good, bad,
+      good) that the two valid rows get created and the bad one reports
+      its own real per-row error, not a stack trace or a zero-listings
+      abort. Bulk-UPDATING an existing listing by SKU via CSV is real,
+      meaningfully bigger functionality (matching rows to existing
+      variants, deciding what "update" means for a field a row leaves
+      blank) — deliberately not built here, matching this session's
+      established scoping discipline for genuinely bigger follow-ups.
+
+      New `GET /sell/products/export` (a Route Handler, not a Server
+      Action — a real file download needs real Content-Type/Content-
+      Disposition headers a Server Action can't set) and an import form on
+      `/sell/products`. 6 new integration tests, including a real
+      export-then-reimport round-trip. Verified end-to-end over real HTTP:
+      downloaded a real CSV with a real comma-containing product title and
+      confirmed the exported field was correctly quoted (proving the
+      writer's quoting logic against real production data, not just
+      synthetic unit-test input) — every value matched the seeded product
+      exactly; a guest is redirected to `/login`, gets no file.
+
+### Current status / where to resume (2026-08-21, commit `6f7dda4`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually

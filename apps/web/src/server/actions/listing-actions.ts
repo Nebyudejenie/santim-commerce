@@ -22,6 +22,7 @@ import {
   updateProduct,
   updateVariant,
 } from "../catalogue/listing-service.js";
+import { importProductsFromCsv, type ImportSummary } from "../catalogue/listing-bulk-service.js";
 import { logger } from "../observability/logger.js";
 
 export interface ListingActionState {
@@ -171,4 +172,44 @@ export async function updateVariantAction(
 
   revalidatePath(`/sell/products/${productId}`);
   return { ok: true, message: "Variant updated." };
+}
+
+export interface ImportCsvActionState {
+  readonly ok: boolean;
+  readonly message?: string;
+  readonly summary?: ImportSummary;
+}
+
+export async function importProductsCsvAction(
+  _prev: ImportCsvActionState,
+  formData: FormData,
+): Promise<ImportCsvActionState> {
+  const sellerId = await sellerIdOrState();
+  if (typeof sellerId !== "string") return sellerId;
+
+  const file = formData.get("csvFile");
+  if (!(file instanceof File) || file.size === 0) {
+    return { ok: false, message: "Choose a CSV file to upload." };
+  }
+  // A runaway upload must never tie up a request indefinitely — 2MB is
+  // generous for a real product-catalogue CSV (thousands of rows).
+  if (file.size > 2 * 1024 * 1024) {
+    return { ok: false, message: "That file is too large (max 2MB)." };
+  }
+
+  const csvText = await file.text();
+
+  try {
+    const summary = await importProductsFromCsv(sellerId, csvText);
+    revalidatePath("/sell/products");
+    return {
+      ok: true,
+      message: `${summary.createdCount} listing${summary.createdCount === 1 ? "" : "s"} created${summary.failedCount > 0 ? `, ${summary.failedCount} row${summary.failedCount === 1 ? "" : "s"} failed` : ""}.`,
+      summary,
+    };
+  } catch (error) {
+    if (error instanceof ListingError) return { ok: false, message: error.message };
+    logger.error("listing.import_csv_action_failed", { sellerId, error: (error as Error).message });
+    return { ok: false, message: "Something went wrong reading that file. Please try again." };
+  }
 }

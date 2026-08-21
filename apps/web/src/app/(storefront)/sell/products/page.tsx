@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { requireApprovedSellerForPage } from "@/server/auth/guard";
 import { listSellerProducts } from "@/server/catalogue/listing-service";
 import { StatusPill } from "@/components/status-pill";
+import { ImportProductsCsvForm } from "@/components/import-products-csv-form";
 
 export const metadata: Metadata = { title: "Your listings" };
 export const dynamic = "force-dynamic";
@@ -15,8 +16,13 @@ export default async function SellerProductsPage() {
     <div className="container" style={{ paddingBlock: "var(--space-7)" }}>
       <div className="section-head">
         <h2>{seller.storeName} — your listings</h2>
-        <Link href="/sell/products/new" className="btn btn--primary btn-sm">New listing</Link>
+        <div style={{ display: "flex", gap: "var(--space-2)" }}>
+          <Link href="/sell/products/export" className="btn btn--secondary btn-sm">Export CSV</Link>
+          <Link href="/sell/products/new" className="btn btn--primary btn-sm">New listing</Link>
+        </div>
       </div>
+
+      <ImportProductsCsvForm />
 
       {products.length === 0 ? (
         <div className="empty-state">
