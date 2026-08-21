@@ -2247,12 +2247,55 @@ proved out this session — do not relax these just because the scope grew)
       never exposes it anywhere. All seeded data and verify scripts
       cleaned up afterward.
 
-### Current status / where to resume (2026-08-22, commit `d24f3aa`)
+- [x] **Real test coverage for `cart-service.ts`** — confirmed absent by
+      grep: zero test files existed for this module before this, despite
+      it sitting directly upstream of checkout, the exact subsystem this
+      project's own docs already call the highest-risk one, and despite
+      having genuinely non-trivial branching logic (`mergeGuestCartIntoUser`
+      alone has four real, distinct cases). Noticed directly while
+      touching `get-cart-detail.ts` for the `allowBackorder` fix a few
+      commits back — a completely untested file was modified in that
+      pass. Deliberately a test-only change: zero application code
+      touched, so there is no new behavior to verify over real HTTP —
+      every property below was already true in production before this
+      commit, just previously unproven by an automated test.
+
+      13 new integration tests covering: `addLine` refuses an invalid
+      quantity, an inactive variant, a DRAFT product, and a suspended
+      seller's variant — the exact three-way gate `checkout-service.ts`
+      later re-verifies, confirmed to be the same real check, not a
+      looser or stricter copy; a repeat add increments the real existing
+      line via the real `@@unique([cartId, variantId])` constraint,
+      never a duplicate row; `updateLineQuantity`/`removeLine`'s real
+      behavior, including the "quantity 0 removes the line, not sets it
+      to 0" case and the "nonexistent cart" edge cases; all four real
+      `mergeGuestCartIntoUser` branches (no guest cart at all; claiming
+      one outright when the user has none yet; merging both with
+      quantities SUMMED — never dropping an item either side genuinely
+      added — while the guest cart is marked ABANDONED, never hard-
+      deleted; and a same-user re-login being a genuine no-op); and
+      `priceCartLines`/`cartSubtotalSantim`'s real price-change detection.
+
+      Cart tokens are random, unguessable strings with no shared prefix
+      to clean up by, and `node --test` runs integration test FILES
+      concurrently by default — a blanket "delete every cartless guest
+      cart" cleanup would risk deleting a genuinely unrelated cart
+      another file created at the same moment. Every token this file
+      creates is tracked in a local array instead and cleaned up by
+      exact token match (`CartLine` cascades with its real `Cart` row).
+      Full regression (72 unit, 281 integration, run three times given
+      this is a brand-new file exercising the exact concurrent-test-file
+      interference risk its own cleanup was designed around) and a
+      production build pass — no schema or application-code change, so
+      no real HTTP E2E section: there is no new behavior for one to
+      demonstrate.
+
+### Current status / where to resume (2026-08-22, commit `PENDING`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
 watched to a real, uncontested completion, per this session's own working
-discipline above. Full regression suite (typecheck, lint, 72 unit, 268
+discipline above. Full regression suite (typecheck, lint, 72 unit, 281
 integration) and a production build all pass cleanly as of this commit.
 
 Deliberately still out of scope, not oversights — both genuinely blocked
@@ -2291,8 +2334,8 @@ application-level login brute-force protection, wishlist price-drop
 alerts, bulk update-by-SKU CSV import, wiring the broken
 Variant.options multi-variant selector, wiring Inventory.allowBackorder,
 fixing the seller variant "Active" checkbox that could never turn back
-off, wiring Variant.costSantim into real seller margin reporting, and
-more, each confirmed genuinely absent before being built). No further
+off, wiring Variant.costSantim into real seller margin reporting, real
+test coverage for the previously-untested cart-service.ts, and more, each confirmed genuinely absent before being built). No further
 specific candidate is currently queued — the systematic dead-field
 audit's one remaining finding, `User.emailVerifiedAt`, is confirmed dead
 but correctly out of scope (see the compare-at entry above for why).
