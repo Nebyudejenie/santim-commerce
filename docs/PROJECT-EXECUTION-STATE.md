@@ -1551,7 +1551,7 @@ proved out this session — do not relax these just because the scope grew)
       removing it via Next's actual Server Action protocol, and the
       question confirmed gone from the public page immediately after.
 
-### Current status / where to resume (2026-08-21, commit `PENDING`)
+### Current status / where to resume (2026-08-21, commit `1f16e80`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
