@@ -4,8 +4,8 @@ Persistent engineering log for santim-commerce. This file is the resume
 point if execution is interrupted: read this file, check `git log --oneline
 -20` and `git status`, and continue from NEXT ACTION.
 
-Last updated: 2026-08-20, commit `1864141` on `main` (pushed; CI in flight
-at time of writing — confirm with `gh run list --branch main --limit 1`).
+Last updated: 2026-08-21, commit `1ccfcde` on `main` (pushed; CI confirmed
+green — every push through this commit has a passing CI run).
 
 ## MANDATE: MULTI-VENDOR MARKETPLACE TRANSFORMATION (current, active)
 
@@ -689,6 +689,41 @@ proved out this session — do not relax these just because the scope grew)
   `orders/state-machine.ts`'s precedent) — required for `test:unit`
   (plain `node --experimental-strip-types`) to even run them, and it's
   also just better-tested code.
+
+### Current status / where to resume (2026-08-21, commit `1ccfcde`)
+
+Every checklist item above is `[x]`. All work through this commit is
+pushed to `main` with CI confirmed green — not just triggered, actually
+watched to a real, uncontested completion, per this session's own working
+discipline above. Full regression suite (typecheck, lint, unit,
+integration — run twice to rule out flakiness) and a production build all
+pass cleanly as of this commit.
+
+Deliberately still out of scope, not oversights — both genuinely blocked
+on real external state this environment doesn't have, not scoping
+choices: **real seller payouts** (sending actual money via SantimPay's B2C
+payout endpoint carries the same unconfirmed-gateway-semantics risk
+flagged for refunds — see `docs/01-santimpay-protocol-spec.md`'s own open
+questions) and **real carrier shipping** (`carrier-client.ts` is an
+explicit curriculum mock — `mock-carrier.example`, an in-memory ledger —
+wiring its fake tracking numbers into real UI would mean presenting
+fabricated data to real users, which was correctly not done this session
+even though the `ShippingLabel` model and service layer already exist).
+
+If continuing this mandate: the highest-value next step is another honest
+gap audit against the master mandate's full feature list (the same method
+that found every feature built this session — grep the codebase for what
+a real marketplace needs, don't assume; several rounds of this already
+found wishlist, notifications, seller coupons, product Q&A, and more,
+each confirmed genuinely absent before being built). Bulk CSV import/
+export for sellers was identified as a plausible next candidate but not
+yet scoped or built. If a specific feature is wanted instead, this file's
+own per-feature entries above show the established pattern to follow:
+schema (checked for the real searchVector migration hazard — see any
+entry above), service layer with ownership scoping, Server Actions with
+in-action auth, real integration tests, full regression, production
+build, real HTTP E2E verification, then commit/push/watch CI to green
+before moving on.
 
 ## PRODUCTION-READINESS HISTORY (prior mandate, mostly complete)
 
