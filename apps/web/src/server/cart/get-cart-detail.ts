@@ -1,6 +1,7 @@
 import { prisma } from "../db.js";
 import { readCartToken } from "./cart-cookie.js";
 import { cartSubtotalSantim, priceCartLines, type CartLineLike } from "./cart-service.js";
+import { totalAvailable } from "../catalogue/catalogue-service.js";
 
 export async function getCartDetail() {
   const token = await readCartToken();
@@ -30,9 +31,10 @@ export async function getCartDetail() {
 
   const lines = cart.lines.map((line) => {
     const p = priced.find((x) => x.variantId === line.variantId)!;
-    const available = line.variant.inventory
-      ? Math.max(0, line.variant.inventory.onHand - line.variant.inventory.reserved)
-      : 0;
+    // Reuses catalogue-service.ts's own shared definition — see its
+    // comment on why a backorder-enabled, real-stock-exhausted variant
+    // must not show a false "exceeds available stock" warning here.
+    const available = totalAvailable(line.variant.inventory);
     return {
       variantId: line.variantId,
       sellerId: line.variant.product.sellerId,

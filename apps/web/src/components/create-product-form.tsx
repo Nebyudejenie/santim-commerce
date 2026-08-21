@@ -69,6 +69,12 @@ export function CreateProductForm() {
         <label htmlFor="onHand">Stock quantity</label>
         <input id="onHand" name="onHand" type="number" step="1" min="0" required defaultValue={0} />
       </div>
+      <div className="form-field">
+        <label htmlFor="allowBackorder" style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
+          <input id="allowBackorder" name="allowBackorder" type="checkbox" />
+          Allow backorder (made-to-order — stays buyable after stock hits zero)
+        </label>
+      </div>
 
       <button type="submit" className="btn btn--primary btn--full btn--lg" disabled={pending}>
         {pending ? "Creating…" : "Create draft listing"}

@@ -15,7 +15,7 @@ interface VariantRowProps {
     compareAtSantim: number | null;
     active: boolean;
     options: unknown;
-    inventory: { onHand: number; lowStockThreshold: number } | null;
+    inventory: { onHand: number; lowStockThreshold: number; allowBackorder: boolean } | null;
   };
 }
 
@@ -27,7 +27,7 @@ export function VariantRow({ productId, variant }: VariantRowProps) {
   return (
     <form
       action={formAction}
-      style={{ display: "grid", gridTemplateColumns: "1fr 90px 90px 100px 100px 110px 90px auto", gap: "var(--space-3)", alignItems: "center", padding: "var(--space-3) 0", borderBottom: "1px solid var(--border)" }}
+      style={{ display: "grid", gridTemplateColumns: "1fr 90px 90px 100px 100px 90px 90px 90px auto", gap: "var(--space-3)", alignItems: "center", padding: "var(--space-3) 0", borderBottom: "1px solid var(--border)" }}
     >
       <input type="hidden" name="variantId" value={variant.id} />
       <input type="hidden" name="productId" value={productId} />
@@ -90,6 +90,13 @@ export function VariantRow({ productId, variant }: VariantRowProps) {
         <input type="checkbox" name="active" defaultChecked={variant.active} />
         Active
       </label>
+      <label
+        style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "var(--text-sm)" }}
+        title="Stays buyable (made-to-order) even after stock hits zero"
+      >
+        <input type="checkbox" name="allowBackorder" defaultChecked={variant.inventory?.allowBackorder ?? false} />
+        Backorder
+      </label>
       <div>
         <button type="submit" className="btn btn--secondary btn-sm" disabled={pending}>
           {pending ? "…" : "Save"}
@@ -112,7 +119,7 @@ export function AddVariantForm({ productId }: { productId: string }) {
   return (
     <form
       action={formAction}
-      style={{ display: "grid", gridTemplateColumns: "1fr 1fr 100px 100px 100px auto", gap: "var(--space-3)", alignItems: "end", marginTop: "var(--space-4)" }}
+      style={{ display: "grid", gridTemplateColumns: "1fr 1fr 100px 100px 100px 90px auto", gap: "var(--space-3)", alignItems: "end", marginTop: "var(--space-4)" }}
     >
       <input type="hidden" name="productId" value={productId} />
       <div className="form-field" style={{ margin: 0 }}>
@@ -141,6 +148,13 @@ export function AddVariantForm({ productId }: { productId: string }) {
         <label htmlFor="new-variant-stock">Stock</label>
         <input id="new-variant-stock" name="onHand" type="number" step="1" min="0" required defaultValue={0} />
       </div>
+      <label
+        style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "var(--text-sm)" }}
+        title="Stays buyable (made-to-order) even after stock hits zero"
+      >
+        <input type="checkbox" name="allowBackorder" />
+        Backorder
+      </label>
       <button type="submit" className="btn btn--primary btn-sm" disabled={pending}>
         {pending ? "Adding…" : "Add variant"}
       </button>

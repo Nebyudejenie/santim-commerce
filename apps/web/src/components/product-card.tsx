@@ -11,7 +11,10 @@ export interface ProductCardData {
   subtitle: string | null;
   heroImage: string | null;
   images: { url: string; alt: string; width: number | null; height: number | null }[];
-  variants: { priceSantim: number; inventory: { onHand: number; reserved: number; lowStockThreshold: number } | null }[];
+  variants: {
+    priceSantim: number;
+    inventory: { onHand: number; reserved: number; lowStockThreshold: number; allowBackorder: boolean } | null;
+  }[];
 }
 
 export function ProductCard({

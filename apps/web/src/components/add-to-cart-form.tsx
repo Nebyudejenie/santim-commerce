@@ -96,9 +96,11 @@ export function AddToCartForm({
           (selected
             ? selected.available === 0
               ? "stock-note--out"
-              : selected.available <= selected.lowStockThreshold
-                ? "stock-note--low"
-                : "stock-note--ok"
+              : selected.available === Infinity
+                ? "stock-note--ok"
+                : selected.available <= selected.lowStockThreshold
+                  ? "stock-note--low"
+                  : "stock-note--ok"
             : "")
         }
         role="status"
@@ -106,9 +108,11 @@ export function AddToCartForm({
         {selected
           ? selected.available === 0
             ? "Out of stock in this size"
-            : selected.available <= selected.lowStockThreshold
-              ? `Only ${selected.available} left`
-              : "In stock"
+            : selected.available === Infinity
+              ? "Available to order — ships once restocked"
+              : selected.available <= selected.lowStockThreshold
+                ? `Only ${selected.available} left`
+                : "In stock"
           : ""}
       </p>
 

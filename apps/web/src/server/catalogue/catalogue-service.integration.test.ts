@@ -11,7 +11,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { PrismaClient } from "@prisma/client";
-import { getSellerStorefront, listRelatedProducts } from "./catalogue-service.ts";
+import { getSellerStorefront, listRelatedProducts, totalAvailable } from "./catalogue-service.ts";
 
 const prisma = new PrismaClient();
 
@@ -117,6 +117,33 @@ test("getSellerStorefront shows no products, but still resolves the real seller,
   await prisma.seller.update({ where: { id: sellerId }, data: { vacationAt: null } });
   const reopened = await getSellerStorefront(seller.slug);
   assert.equal(reopened!.products.length, 1, "turning vacation back off must make the real listing visible again");
+});
+
+// `totalAvailable` itself is a pure function needing no database — folded
+// in here (rather than a separate plain .test.ts) because this module's
+// top-level `prisma` import means `test:unit`'s plain `node --test`
+// runner can't resolve it standalone, the same reason several other
+// modules in this codebase only ever get exercised under tsx.
+test("totalAvailable returns the real onHand - reserved when stock remains, backorder or not", () => {
+  assert.equal(totalAvailable({ onHand: 10, reserved: 3 }), 7);
+  assert.equal(totalAvailable({ onHand: 10, reserved: 3, allowBackorder: true }), 7, "backorder must not inflate real remaining stock");
+});
+
+test("totalAvailable floors at 0 when backorder is off and stock is exhausted or oversold", () => {
+  assert.equal(totalAvailable({ onHand: 5, reserved: 5 }), 0);
+  assert.equal(totalAvailable({ onHand: 5, reserved: 8 }), 0, "must never go negative even if reserved somehow exceeds onHand");
+  assert.equal(totalAvailable({ onHand: 5, reserved: 5, allowBackorder: false }), 0);
+});
+
+test("totalAvailable returns Infinity once real stock is exhausted AND backorder is on — the whole point of the flag", () => {
+  assert.equal(totalAvailable({ onHand: 5, reserved: 5, allowBackorder: true }), Infinity);
+  assert.equal(totalAvailable({ onHand: 0, reserved: 0, allowBackorder: true }), Infinity);
+  assert.equal(totalAvailable({ onHand: 3, reserved: 10, allowBackorder: true }), Infinity, "oversold + backorder is still genuinely purchasable");
+});
+
+test("totalAvailable returns 0 for a variant with no real inventory row at all, backorder or not", () => {
+  assert.equal(totalAvailable(null), 0);
+  assert.equal(totalAvailable(undefined), 0);
 });
 
 test.after(async () => {

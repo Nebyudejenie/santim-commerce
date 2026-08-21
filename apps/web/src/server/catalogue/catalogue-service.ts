@@ -155,7 +155,25 @@ export function fromPriceSantim(variants: readonly { priceSantim: number }[]): n
   return variants.reduce((min, v) => Math.min(min, v.priceSantim), Number.POSITIVE_INFINITY);
 }
 
-export function totalAvailable(inventory: { onHand: number; reserved: number } | null | undefined): number {
+/**
+ * `allowBackorder` (reservation.ts's own atomic, already-correct
+ * oversell gate) was confirmed to have zero storefront read path before
+ * this: every caller here floored at 0 regardless, so a merchant could
+ * never actually make backorder-enabled stock buyable — the "Add to
+ * bag" button stayed disabled and the swatch stayed unclickable the
+ * moment real stock hit zero, no matter what the flag said. Once REAL
+ * stock is exhausted, a backorder-enabled variant returns
+ * `Infinity` — never displayed as a number anywhere (every caller only
+ * ever compares it to 0 or a threshold), so this is a safe sentinel for
+ * "always purchasable," not a real inventory count. While real stock is
+ * still positive, the actual number is returned unchanged — backorder
+ * only changes what happens once it's genuinely gone.
+ */
+export function totalAvailable(
+  inventory: { onHand: number; reserved: number; allowBackorder?: boolean } | null | undefined,
+): number {
   if (!inventory) return 0;
-  return Math.max(0, inventory.onHand - inventory.reserved);
+  const real = inventory.onHand - inventory.reserved;
+  if (inventory.allowBackorder && real <= 0) return Number.POSITIVE_INFINITY;
+  return Math.max(0, real);
 }

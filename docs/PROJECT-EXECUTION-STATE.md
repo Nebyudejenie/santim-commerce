@@ -2074,12 +2074,80 @@ proved out this session — do not relax these just because the scope grew)
       form and confirmed the PDP's real swatch text updated accordingly.
       All seeded data and verify scripts cleaned up afterward.
 
-### Current status / where to resume (2026-08-22, commit `a1ed438`)
+- [x] **Wired `Inventory.allowBackorder`** — found via a more precise
+      re-run of the dead-field audit (grep "is this field ever the
+      target of a `.create`/`.update` call," not just "does its name
+      appear somewhere," which is what let `Variant.options` slip past
+      the earlier, cruder pass). `reservation.ts`'s atomic reservation
+      SQL has correctly respected this flag from the start — a real,
+      already-working oversell gate for made-to-order items — but every
+      storefront READ path (`totalAvailable` in catalogue-service.ts,
+      plus an independent inline duplicate in `get-cart-detail.ts`)
+      floored available stock at 0 regardless of the flag, and no
+      seller-facing UI ever existed to turn it on. Net effect: a
+      backorder-enabled variant that genuinely sold out still showed
+      "Out of stock," disabled its swatch button, and disabled "Add to
+      bag" — completely unreachable in practice, a real feature that
+      could never actually be used.
+
+      `totalAvailable` now returns real remaining stock unchanged while
+      any is left, and a real `Infinity` sentinel once it's genuinely
+      exhausted AND `allowBackorder` is set — never displayed as a
+      number anywhere (every caller only ever compares it to 0 or a
+      threshold), so this is safe. `get-cart-detail.ts`'s own inline
+      duplicate of this exact logic was deleted in favor of calling the
+      one shared function — one definition, not two to keep in sync,
+      matching this codebase's own established `VISIBLE_PRODUCT_WHERE`-
+      style discipline. This one change correctly propagates through
+      every caller with zero further edits needed: the PDP's swatch/buy-
+      button state, the catalogue grid's sold-out/low-stock badges, the
+      JSON-LD availability schema, the cart page's stock-exceeded
+      warning, and even `back-in-stock-service.ts`'s own trigger logic
+      (a backorder-enabled variant is correctly never flagged as
+      "still needs a restock alert," since it's always genuinely
+      purchasable).
+
+      New seller-facing "Allow backorder" checkbox on `CreateProductForm`,
+      `AddVariantForm`, and `VariantRow`, wired through
+      `CreateProductInput`/`AddVariantInput`/`UpdateVariantInput`.
+      Deliberately given real toggle-both-ways semantics
+      (`formData.get("allowBackorder") === "on"`, always a concrete
+      boolean) rather than copying the existing `active` checkbox's
+      "absent means unchanged" convention — the existing `active` field
+      has that same convention and, on inspection, appears to have the
+      same "can turn on but never back off through this form" property,
+      a separate, pre-existing issue logged below, not fixed as part of
+      this change to avoid conflating two unrelated fixes in one commit.
+      New "Available to order — ships once restocked" message on the PDP
+      (distinct from a plain "In stock," which would overclaim physical
+      inventory that doesn't exist) when `available === Infinity`.
+
+      9 new tests: 4 pure unit-style assertions on `totalAvailable`
+      itself (folded into `catalogue-service.integration.test.ts` since
+      that module's own top-level Prisma import means it can't run
+      under `test:unit`'s plain node runner) covering the real-stock,
+      floor-at-zero, and genuine-Infinity-on-exhaustion cases; 1
+      integration test confirming `allowBackorder` is real, writable
+      state settable via all three entry points and toggleable back off.
+      Full regression (72 unit, 264 integration, run twice given this
+      touches shared inventory-availability logic used by checkout,
+      cart, and back-in-stock) and a production build pass — no schema
+      change, purely wiring an existing field. Real HTTP E2E: created a
+      real 0-stock, backorder-enabled listing through the real form,
+      published it, and confirmed the real PDP showed "Available to
+      order" with an ENABLED "Add to bag" button; created a second real
+      0-stock listing WITHOUT backorder as a negative control and
+      confirmed it correctly showed "Out of stock" with a disabled
+      button — proving the fix is genuinely conditional, not just
+      "always show available now." All seeded data and verify scripts
+      cleaned up afterward.
+
+### Current status / where to resume (2026-08-22, commit `PENDING`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
 watched to a real, uncontested completion, per this session's own working
-discipline above. Full regression suite (typecheck, lint, 72 unit, 259
+discipline above. Full regression suite (typecheck, lint, 72 unit, 264
 integration) and a production build all pass cleanly as of this commit.
 
 Deliberately still out of scope, not oversights — both genuinely blocked
@@ -2116,7 +2184,8 @@ admin audit log, product Q&A moderation, self-service data export, seller order 
 messaging, admin message moderation, return dispute escalation,
 application-level login brute-force protection, wishlist price-drop
 alerts, bulk update-by-SKU CSV import, wiring the broken
-Variant.options multi-variant selector, and more, each confirmed genuinely absent before being built). No further
+Variant.options multi-variant selector, wiring Inventory.allowBackorder,
+and more, each confirmed genuinely absent before being built). No further
 specific candidate is currently queued — the systematic dead-field
 audit's one remaining finding, `User.emailVerifiedAt`, is confirmed dead
 but correctly out of scope (see the compare-at entry above for why).
@@ -2359,6 +2428,16 @@ validation against a real cluster, backup/restore) may still surface P1s
   deliberately left out, see that entry's own reasoning.
 - Known-unmergeable Dependabot PRs left open by design: #9 (Prisma 7),
   #10 (Next.js 16), #14 (TypeScript 7).
+- `VariantRow`'s "Active" checkbox (`variant-editor.tsx`) appears to be
+  able to turn a variant ON but never back OFF through this form: its
+  action reads `formData.get("active")` and treats an absent value (an
+  unchecked checkbox submits nothing) as "leave unchanged" rather than
+  "set to false," so unchecking and saving is indistinguishable from
+  never touching it at all. Noticed while wiring the NEW `allowBackorder`
+  checkbox (deliberately given different, always-both-ways-toggleable
+  semantics instead of copying this one) — not confirmed with a test or
+  fixed, since it's a separate, pre-existing field unrelated to that
+  change. Worth a dedicated look.
 - CSP is conservative (no `script-src`/`style-src` lockdown) — a fuller
   policy is real follow-up work, not done this pass to avoid an unverified
   risk of breaking the app.

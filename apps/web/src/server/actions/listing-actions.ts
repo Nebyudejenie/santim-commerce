@@ -66,6 +66,7 @@ export async function createProductAction(
       onHand: String(formData.get("onHand") ?? ""),
       optionName: String(formData.get("optionName") ?? ""),
       optionValue: String(formData.get("optionValue") ?? ""),
+      allowBackorder: formData.get("allowBackorder") === "on",
     });
     productId = product.id;
   } catch (error) {
@@ -148,6 +149,7 @@ export async function addVariantAction(
       compareAtBirr: String(formData.get("compareAtBirr") ?? ""),
       optionName: String(formData.get("optionName") ?? ""),
       optionValue: String(formData.get("optionValue") ?? ""),
+      allowBackorder: formData.get("allowBackorder") === "on",
     });
   } catch (error) {
     if (error instanceof ListingError) return { ok: false, message: error.message };
@@ -179,6 +181,10 @@ export async function updateVariantAction(
       compareAtBirr: String(formData.get("compareAtBirr") ?? ""),
       optionName: String(formData.get("optionName") ?? ""),
       optionValue: String(formData.get("optionValue") ?? ""),
+      // Always a real boolean, never undefined-when-unchecked (unlike
+      // `active` above) — a checkbox that can only ever be turned ON
+      // through this form, never back off, would be its own real bug.
+      allowBackorder: formData.get("allowBackorder") === "on",
     });
   } catch (error) {
     if (error instanceof ListingError) return { ok: false, message: error.message };

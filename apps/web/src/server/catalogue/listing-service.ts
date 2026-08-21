@@ -73,6 +73,10 @@ export interface CreateProductInput {
    * even for a product that (so far) has only this one variant. */
   readonly optionName?: string;
   readonly optionValue?: string;
+  /** See `totalAvailable`'s own comment in catalogue-service.ts — the
+   * reservation layer already respected this correctly; the storefront
+   * just had no way for a seller to ever turn it on. */
+  readonly allowBackorder?: boolean;
 }
 
 /**
@@ -146,7 +150,9 @@ export async function createProduct(sellerId: string, input: CreateProductInput)
           },
         });
 
-        await tx.inventory.create({ data: { variantId: variant.id, onHand, reserved: 0 } });
+        await tx.inventory.create({
+          data: { variantId: variant.id, onHand, reserved: 0, allowBackorder: input.allowBackorder ?? false },
+        });
 
         return created;
       });
@@ -243,6 +249,7 @@ export interface AddVariantInput {
   readonly compareAtBirr?: string;
   readonly optionName?: string;
   readonly optionValue?: string;
+  readonly allowBackorder?: boolean;
 }
 
 export async function addVariant(sellerId: string, productId: string, input: AddVariantInput) {
@@ -271,7 +278,9 @@ export async function addVariant(sellerId: string, productId: string, input: Add
         options: buildOptions(input.optionName, input.optionValue),
       },
     });
-    await prisma.inventory.create({ data: { variantId: variant.id, onHand, reserved: 0 } });
+    await prisma.inventory.create({
+      data: { variantId: variant.id, onHand, reserved: 0, allowBackorder: input.allowBackorder ?? false },
+    });
     logger.info("listing.variant_added", { productId, sellerId, variantId: variant.id });
     return variant;
   } catch (error) {
@@ -290,6 +299,7 @@ export interface UpdateVariantInput {
   readonly compareAtBirr?: string;
   readonly optionName?: string;
   readonly optionValue?: string;
+  readonly allowBackorder?: boolean;
 }
 
 /** Ownership is checked via the variant's OWN product, never trusted from the caller. */
@@ -336,8 +346,8 @@ export async function updateVariant(sellerId: string, variantId: string, input: 
       })
     : await prisma.variant.update({ where: { id: variantId }, data });
 
-  if (input.onHand !== undefined || input.lowStockThreshold !== undefined) {
-    const inventoryData: Record<string, number> = {};
+  if (input.onHand !== undefined || input.lowStockThreshold !== undefined || input.allowBackorder !== undefined) {
+    const inventoryData: Record<string, number | boolean> = {};
     if (input.onHand !== undefined) {
       if (!Number.isInteger(input.onHand) || input.onHand < 0) {
         throw new ListingError("Stock quantity must be a non-negative whole number.");
@@ -350,6 +360,7 @@ export async function updateVariant(sellerId: string, variantId: string, input: 
       }
       inventoryData.lowStockThreshold = input.lowStockThreshold;
     }
+    if (input.allowBackorder !== undefined) inventoryData.allowBackorder = input.allowBackorder;
     // Absolute sets, not deltas — this is a seller correcting their own
     // stock count/alert threshold, not a reservation/sale event (those go
     // through reservation.ts's atomic UPDATE, never through this path).

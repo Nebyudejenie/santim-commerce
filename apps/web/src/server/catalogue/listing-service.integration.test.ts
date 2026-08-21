@@ -106,6 +106,40 @@ test("updateVariant sets, then clears, real options — the same 'blank clears i
   assert.deepEqual(cleared?.variants[0]?.options, {}, "a blank name/value must clear the real options, not leave the old ones");
 });
 
+test("allowBackorder is real, writable state — set on createProduct, addVariant, and updateVariant, defaulting to false", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const sellerId = await makeSeller(`backorder-${suffix}`);
+
+  const withBackorder = await createProduct(sellerId, { ...baseInput(`backorder-a-${suffix}`), allowBackorder: true });
+  const fullWithBackorder = await getSellerProduct(sellerId, withBackorder.id);
+  assert.equal(fullWithBackorder?.variants[0]?.inventory?.allowBackorder, true);
+
+  const withoutBackorder = await createProduct(sellerId, baseInput(`backorder-b-${suffix}`));
+  const fullWithoutBackorder = await getSellerProduct(sellerId, withoutBackorder.id);
+  assert.equal(fullWithoutBackorder?.variants[0]?.inventory?.allowBackorder, false, "must default to false, never opt a seller in silently");
+
+  await addVariant(sellerId, withoutBackorder.id, {
+    title: "Second",
+    sku: `BACKORDER-${suffix}-2`,
+    priceBirr: "50.00",
+    onHand: "0",
+    allowBackorder: true,
+  });
+  const withAddedVariant = await getSellerProduct(sellerId, withoutBackorder.id);
+  const added = withAddedVariant?.variants.find((v) => v.sku === `BACKORDER-${suffix}-2`);
+  assert.equal(added?.inventory?.allowBackorder, true);
+
+  const firstVariantId = fullWithoutBackorder!.variants[0]!.id;
+  await updateVariant(sellerId, firstVariantId, { allowBackorder: true });
+  const afterUpdate = await getSellerProduct(sellerId, withoutBackorder.id);
+  assert.equal(afterUpdate?.variants.find((v) => v.id === firstVariantId)?.inventory?.allowBackorder, true);
+
+  // And back off — a checkbox that could only ever turn ON would be its own real bug.
+  await updateVariant(sellerId, firstVariantId, { allowBackorder: false });
+  const afterTurningOff = await getSellerProduct(sellerId, withoutBackorder.id);
+  assert.equal(afterTurningOff?.variants.find((v) => v.id === firstVariantId)?.inventory?.allowBackorder, false);
+});
+
 test("publishing requires a variant, and DRAFT -> ACTIVE -> ARCHIVED -> ACTIVE is legal", async () => {
   const sellerId = await makeSeller(`publish-${Math.random().toString(36).slice(2, 8)}`);
   const product = await createProduct(sellerId, baseInput("B"));
