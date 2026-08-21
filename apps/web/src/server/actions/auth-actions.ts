@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
-import { AuthError, changePassword, hasRole, login, logout, register } from "../auth/auth-service.js";
+import { AuthError, changePassword, deleteOwnAccount, hasRole, login, logout, register } from "../auth/auth-service.js";
 import { destroySession } from "../auth/session.js";
 import { requireUser } from "../auth/guard.js";
 import { PasswordError } from "../auth/password.js";
@@ -185,4 +185,30 @@ export async function changePasswordAction(
   }
 
   redirect("/login");
+}
+
+/**
+ * Self-service, permanent account deletion — see auth-service.ts's
+ * `deleteOwnAccount` for the anonymize-not-hard-delete reasoning and the
+ * active-seller guard. Redirects home, not to `/login`: unlike a password
+ * change, there's no account left to sign back into.
+ */
+export async function deleteAccountAction(
+  _prev: AuthFormState,
+  formData: FormData,
+): Promise<AuthFormState> {
+  const user = await requireUser();
+  const currentPassword = String(formData.get("currentPassword") ?? "");
+
+  try {
+    await deleteOwnAccount(user.id, currentPassword);
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return { ok: false, error: error.message };
+    }
+    logger.error("auth.delete_account_action_failed", { userId: user.id, error: (error as Error).message });
+    return { ok: false, error: "Something went wrong. Please try again." };
+  }
+
+  redirect("/");
 }

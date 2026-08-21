@@ -21,7 +21,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { PrismaClient } from "@prisma/client";
-import { changePassword, suspendUser, reinstateUser, AuthError } from "./auth-service.ts";
+import { changePassword, suspendUser, reinstateUser, deleteOwnAccount, AuthError } from "./auth-service.ts";
 import { hashPassword, verifyPassword } from "./password.ts";
 import { hashToken } from "./session-store.ts";
 
@@ -146,10 +146,109 @@ test("reinstating an account that isn't suspended is rejected", async () => {
   );
 });
 
+// Tracked by id, not email prefix — deleteOwnAccount itself REWRITES the
+// email to deleted-<userId>@deleted.invalid, so a prefix-based cleanup
+// filter on the original "delete-user-" email would miss every row this
+// suite's own tests successfully deleted.
+const deletableUserIds: string[] = [];
+
+async function makeDeletableUser(suffix: string) {
+  const passwordHash = await hashPassword("original-password-1");
+  const user = await prisma.user.create({
+    data: { email: `delete-user-${suffix}@example.et`, name: "Real Name", phone: `+2519${suffix}`.slice(0, 13), role: "CUSTOMER", passwordHash },
+  });
+  deletableUserIds.push(user.id);
+  return user;
+}
+
+test("deleteOwnAccount anonymizes email/name/phone and permanently blocks login", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const user = await makeDeletableUser(suffix);
+
+  await deleteOwnAccount(user.id, "original-password-1");
+
+  const deleted = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+  assert.equal(deleted.email, `deleted-${user.id}@deleted.invalid`);
+  assert.equal(deleted.name, null);
+  assert.equal(deleted.phone, null);
+  assert.equal(deleted.passwordHash, null, "a null passwordHash is what actually blocks login — see login()'s own check");
+  assert.ok(deleted.deletedAt);
+});
+
+test("deleteOwnAccount with a wrong current password is rejected and changes nothing", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const user = await makeDeletableUser(suffix);
+
+  await assert.rejects(
+    () => deleteOwnAccount(user.id, "totally-wrong-password"),
+    (err: unknown) => err instanceof AuthError && /incorrect/i.test(err.message),
+  );
+
+  const unchanged = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+  assert.equal(unchanged.email, `delete-user-${suffix}@example.et`, "a rejected deletion must not have touched the row");
+  assert.equal(unchanged.deletedAt, null);
+});
+
+test("deleteOwnAccount destroys every existing session", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const user = await makeDeletableUser(suffix);
+  await prisma.session.create({
+    data: { userId: user.id, tokenHash: hashToken(`delete-session-${suffix}`), expiresAt: new Date(Date.now() + 60_000) },
+  });
+
+  await deleteOwnAccount(user.id, "original-password-1");
+
+  const remaining = await prisma.session.count({ where: { userId: user.id } });
+  assert.equal(remaining, 0);
+});
+
+test("deleting an already-deleted account is rejected", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const user = await makeDeletableUser(suffix);
+  await deleteOwnAccount(user.id, "original-password-1");
+
+  await assert.rejects(
+    () => deleteOwnAccount(user.id, "original-password-1"),
+    (err: unknown) => err instanceof AuthError && /not found/.test(err.message),
+  );
+});
+
+test("an APPROVED seller cannot self-delete their account — it would strand a real, live storefront", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const user = await makeDeletableUser(suffix);
+  await prisma.seller.create({
+    data: { ownerId: user.id, storeName: `Delete Test Store ${suffix}`, slug: `delete-test-store-${suffix}`, status: "APPROVED" },
+  });
+
+  await assert.rejects(
+    () => deleteOwnAccount(user.id, "original-password-1"),
+    (err: unknown) => err instanceof AuthError && /active seller store/.test(err.message),
+  );
+
+  const unchanged = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+  assert.equal(unchanged.deletedAt, null);
+});
+
+test("a PENDING seller (no live storefront) can self-delete freely", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const user = await makeDeletableUser(suffix);
+  await prisma.seller.create({
+    data: { ownerId: user.id, storeName: `Delete Test Pending ${suffix}`, slug: `delete-test-pending-${suffix}`, status: "PENDING" },
+  });
+
+  await deleteOwnAccount(user.id, "original-password-1");
+
+  const deleted = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+  assert.ok(deleted.deletedAt, "a seller application with no live storefront must not block self-deletion");
+});
+
 test.after(async () => {
   await prisma.session.deleteMany({ where: { user: { email: { startsWith: "changepw-user-" } } } });
   await prisma.user.deleteMany({ where: { email: { startsWith: "changepw-user-" } } });
   await prisma.session.deleteMany({ where: { user: { email: { startsWith: "suspend-user-" } } } });
   await prisma.user.deleteMany({ where: { email: { startsWith: "suspend-user-" } } });
+  await prisma.session.deleteMany({ where: { userId: { in: deletableUserIds } } });
+  await prisma.seller.deleteMany({ where: { ownerId: { in: deletableUserIds } } });
+  await prisma.user.deleteMany({ where: { id: { in: deletableUserIds } } });
   await prisma.$disconnect();
 });

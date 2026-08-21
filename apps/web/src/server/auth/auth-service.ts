@@ -194,6 +194,66 @@ export async function reinstateUser(userId: string): Promise<void> {
   logger.info("auth.user_reinstated", { userId });
 }
 
+/**
+ * Self-initiated, permanent account deletion. Anonymizes rather than
+ * hard-deletes: an `Order.userId` cascade or SetNull on a real row
+ * deletion would either corrupt or orphan real financial/order history
+ * unpredictably across every relation this table touches, the same
+ * reasoning `OrderLine`'s own snapshotted fields exist so an order's
+ * record survives independent of the catalogue changing later — here,
+ * independent of the ACCOUNT changing later. `Order.email`/`phone` are
+ * ALREADY their own snapshot from checkout, captured independently of
+ * `User.email` — anonymizing the user here does not touch a single past
+ * order's own contact info, so no separate "does this user have pending
+ * orders" guard is needed for the BUYER side.
+ *
+ * The SELLER side is different: an APPROVED seller has a live storefront
+ * real customers can be actively transacting with right now. Deleting
+ * that account out from under a real store would strand it — refused,
+ * matching this account's role as an owner of something still live
+ * elsewhere in the system, not just personal data. A PENDING, REJECTED,
+ * or SUSPENDED seller has no live storefront obligation and may delete
+ * freely.
+ */
+export async function deleteOwnAccount(userId: string, currentPassword: string): Promise<void> {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user || !user.passwordHash) {
+    throw new AuthError("Account not found.");
+  }
+  if (user.deletedAt) {
+    throw new AuthError("This account is already deleted.");
+  }
+
+  const valid = await verifyPassword(currentPassword, user.passwordHash);
+  if (!valid) {
+    throw new AuthError("Current password is incorrect.");
+  }
+
+  const seller = await prisma.seller.findUnique({ where: { ownerId: userId }, select: { status: true } });
+  if (seller?.status === "APPROVED") {
+    throw new AuthError("You have an active seller store. Contact support to close your store before deleting your account.");
+  }
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: {
+      // .invalid is the IANA-reserved TLD for exactly this — a real,
+      // permanently non-routable placeholder, not a made-up convention.
+      email: `deleted-${userId}@deleted.invalid`,
+      name: null,
+      phone: null,
+      passwordHash: null,
+      deletedAt: new Date(),
+    },
+  });
+  // Not strictly required for login-blocking — passwordHash being null
+  // already achieves that via login()'s own existing check — but a
+  // session opened before deletion must not go on working regardless.
+  await destroyAllSessions(userId);
+
+  logger.warn("auth.account_deleted", { userId });
+}
+
 /** Role hierarchy for the admin gate: ADMIN can do everything STAFF can. */
 const ROLE_RANK: Record<UserRole, number> = { CUSTOMER: 0, STAFF: 1, ADMIN: 2 };
 

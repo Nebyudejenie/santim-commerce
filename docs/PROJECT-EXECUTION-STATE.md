@@ -1365,12 +1365,76 @@ proved out this session — do not relax these just because the scope grew)
       corrected to a real ≥10-character description, the update — and
       the error path's own real correctness — were both confirmed.)
 
-### Current status / where to resume (2026-08-21, commit `a6189e1`)
+- [x] **Self-service account deletion** — completes the account-lifecycle
+      story this session already built most of (admin-assisted recovery,
+      self-service password change, admin suspension): a user could
+      change or recover their password and an admin could suspend them,
+      but there was no way for a user to actually leave — a real,
+      standard right on virtually every comparable platform, confirmed
+      genuinely absent (zero matches for delete/anonymize anywhere).
+
+      Anonymizes rather than hard-deletes — the same reasoning
+      `OrderLine`'s own snapshotted fields already establish: a real
+      `DELETE` on `User` would cascade or orphan unpredictably across
+      every relation this table touches, corrupting real financial/order
+      history. `Order.email`/`phone` are their OWN independent snapshot
+      from checkout, already captured separately from `User.email` — so
+      anonymizing the account touches zero past orders' own contact info,
+      and no separate "has pending orders" guard was needed on the buyer
+      side. The seller side is different and IS guarded: an APPROVED
+      seller has a real, live storefront other people are actively
+      transacting with — deleting that account out from under it would
+      strand real customers, so it's refused; a PENDING/REJECTED/
+      SUSPENDED seller has no live obligation and may delete freely.
+
+      New `User.deletedAt`, deliberately a SEPARATE field from
+      `suspendedAt`, not a reused one — suspension is temporary,
+      admin-imposed, and reversible (a real `reinstateUser` exists);
+      deletion is permanent and user-initiated, and must never look
+      "reinstatable" the same way. The login-block itself needs no new
+      check at all: `deleteOwnAccount` also nulls `passwordHash`, and
+      `login()`'s own pre-existing `!user.passwordHash` branch already
+      rejects with the exact same generic "Incorrect email or password"
+      a wrong password gets — the identical enumeration-prevention
+      reasoning already documented there, now covered for free. Email is
+      rewritten to `deleted-<userId>@deleted.invalid` — `.invalid` is the
+      real IANA-reserved TLD for exactly this, not an improvised
+      convention — freeing the original address for a genuine future
+      re-registration. Requires re-confirming the current password first,
+      matching `changePassword`'s own precedent that an open session
+      alone isn't enough to authorize a permanent, destructive action.
+
+      New "Danger zone" section on `/account/security`, alongside the
+      password form. Admin's `/admin/users` list and detail pages now
+      distinguish Deleted from Suspended from Active, and the detail page
+      correctly hides the now-meaningless password-reset-issuance and
+      suspend/reinstate controls for a deleted account rather than
+      offering buttons that would act on an anonymized row with no real
+      owner.
+
+      6 new integration tests (anonymizes and permanently blocks login;
+      wrong password rejected and changes nothing; destroys every
+      session; a second delete attempt rejected; an APPROVED seller
+      blocked; a PENDING seller's account deletes freely). Full
+      regression suite (72 unit, 199 integration) and a production build
+      pass. Verified end-to-end over real HTTP: the Danger zone
+      rendering; a wrong-password attempt rejected; an APPROVED seller's
+      attempt correctly refused with the database confirmed unchanged; a
+      real successful deletion via Next's actual Server Action protocol
+      redirecting home; the anonymized email/null name/null phone/null
+      passwordHash/set deletedAt all confirmed in the database; the exact
+      cookie that made the deletion request dead on its very next
+      request; a fresh login attempt with the original credentials
+      genuinely rejected with the same generic message a wrong password
+      gets; and the admin list/detail pages correctly showing "Deleted"
+      with the recovery/suspension controls hidden.
+
+### Current status / where to resume (2026-08-21, commit `PENDING`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
 watched to a real, uncontested completion, per this session's own working
-discipline above. Full regression suite (typecheck, lint, 72 unit, 193
+discipline above. Full regression suite (typecheck, lint, 72 unit, 199
 integration) and a production build all pass cleanly as of this commit.
 
 Deliberately still out of scope, not oversights — both genuinely blocked
@@ -1401,7 +1465,8 @@ import/export, back-in-stock notifications, admin payout recording,
 customer order cancellation, guest order lookup, admin-assisted password
 reset, self-service password change, admin customer suspension, seller
 self-service storefront settings, order delivery notes, seller low-stock
-alerts, compare-at pricing, SEO title/description, and
+alerts, compare-at pricing, SEO title/description, self-service account
+deletion, and
 more, each confirmed genuinely absent before being built). No further
 specific candidate is
 currently queued — the systematic dead-field audit's one remaining

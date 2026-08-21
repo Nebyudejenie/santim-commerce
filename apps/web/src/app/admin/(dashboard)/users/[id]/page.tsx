@@ -40,7 +40,7 @@ export default async function AdminUserDetailPage({ params }: Props) {
         </div>
         <div className="summary-row">
           <span>Status</span>
-          <span>{user.suspendedAt ? "Suspended" : "Active"}</span>
+          <span>{user.deletedAt ? "Deleted" : user.suspendedAt ? "Suspended" : "Active"}</span>
         </div>
         {user.suspendedAt && user.suspendedReason && (
           <div className="summary-row">
@@ -68,19 +68,28 @@ export default async function AdminUserDetailPage({ params }: Props) {
         )}
       </div>
 
-      <p style={{ fontWeight: 600, marginBottom: "var(--space-3)" }}>Account recovery</p>
-      <p className="form-hint" style={{ marginBottom: "var(--space-3)" }}>
-        Only issue a reset link after verifying the request came from this user through a real support
-        channel — this system has no email delivery, so it cannot verify that on its own.
-      </p>
-      <IssueResetTokenButton userId={user.id} userEmail={user.email} />
-
-      {user.role === "CUSTOMER" && (
+      {user.deletedAt ? (
+        <p className="form-hint">
+          This account was deleted by the user and has no real email or password — account recovery and
+          suspension controls don&apos;t apply to it anymore.
+        </p>
+      ) : (
         <>
-          <p style={{ fontWeight: 600, marginTop: "var(--space-6)", marginBottom: "var(--space-3)" }}>
-            Trust &amp; safety
+          <p style={{ fontWeight: 600, marginBottom: "var(--space-3)" }}>Account recovery</p>
+          <p className="form-hint" style={{ marginBottom: "var(--space-3)" }}>
+            Only issue a reset link after verifying the request came from this user through a real support
+            channel — this system has no email delivery, so it cannot verify that on its own.
           </p>
-          <SuspendUserButton userId={user.id} userEmail={user.email} suspended={user.suspendedAt !== null} />
+          <IssueResetTokenButton userId={user.id} userEmail={user.email} />
+
+          {user.role === "CUSTOMER" && (
+            <>
+              <p style={{ fontWeight: 600, marginTop: "var(--space-6)", marginBottom: "var(--space-3)" }}>
+                Trust &amp; safety
+              </p>
+              <SuspendUserButton userId={user.id} userEmail={user.email} suspended={user.suspendedAt !== null} />
+            </>
+          )}
         </>
       )}
     </div>

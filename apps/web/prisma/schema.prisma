@@ -596,6 +596,21 @@ model User {
   suspendedReason  String?
   suspendedByAdmin String?
 
+  /// Self-initiated, permanent account deletion — deliberately a SEPARATE
+  /// field from suspendedAt, not a reused one: suspension is temporary and
+  /// admin-imposed/reversible (a real `reinstateUser` exists for it);
+  /// deletion is permanent and user-initiated, and must never be
+  /// "reinstatable" the same way. Login is blocked without needing a
+  /// dedicated check here at all — deleteOwnAccount also nulls
+  /// `passwordHash`, and login()'s own existing `!user.passwordHash`
+  /// branch already rejects with the SAME generic message a wrong
+  /// password gets, for the identical enumeration-prevention reason
+  /// already documented there. This field exists for admin visibility
+  /// and idempotency (a second delete attempt must be refused), not to
+  /// gate login itself. `email`/`name`/`phone` are anonymized at the same
+  /// time — see auth-service.ts's `deleteOwnAccount`.
+  deletedAt DateTime?
+
   orders    Order[]
   carts     Cart[]
   addresses Address[]

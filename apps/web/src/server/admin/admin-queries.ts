@@ -265,7 +265,7 @@ export async function listUsersForAdmin(search?: string, take = 50) {
       : undefined,
     orderBy: { createdAt: "desc" },
     take,
-    select: { id: true, email: true, name: true, role: true, createdAt: true, suspendedAt: true },
+    select: { id: true, email: true, name: true, role: true, createdAt: true, suspendedAt: true, deletedAt: true },
   });
 }
 
@@ -280,6 +280,7 @@ export async function getUserForAdmin(userId: string) {
       createdAt: true,
       suspendedAt: true,
       suspendedReason: true,
+      deletedAt: true,
       seller: { select: { storeName: true, status: true } },
       _count: { select: { orders: true, sessions: true } },
     },
