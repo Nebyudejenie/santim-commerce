@@ -35,7 +35,8 @@ async function createOnce(input: {
     | "RETURN_REJECTED"
     | "QUESTION_ANSWERED"
     | "LOW_STOCK"
-    | "NEW_SALE";
+    | "NEW_SALE"
+    | "NEW_MESSAGE";
   title: string;
   body: string;
   link?: string;
@@ -256,6 +257,52 @@ export async function notifySellersOfNewSale(orderId: string): Promise<void> {
       dedupeKey: `new-sale:${orderId}:${seller.id}`,
     });
   }
+}
+
+/**
+ * Confirmed absent before this: message-service.ts's sendBuyerMessage/
+ * sendSellerMessage created real Message rows with zero real-time signal
+ * to the OTHER side — a seller had no way to know a buyer replied short
+ * of manually reopening every thread. Single-recipient `createOnce` keyed
+ * on the message's own id is enough (a message is created exactly once,
+ * never re-armed the way a stockout/restock cycle is) — the recipient is
+ * always "whichever side did not send this message", the same two-
+ * participant logic message-service.ts's own unread computation uses.
+ */
+export async function notifyNewMessage(messageId: string): Promise<void> {
+  const message = await prisma.message.findUnique({
+    where: { id: messageId },
+    select: {
+      body: true,
+      senderUserId: true,
+      thread: {
+        select: {
+          id: true,
+          buyerUserId: true,
+          seller: { select: { ownerId: true, storeName: true } },
+          order: { select: { orderNumber: true } },
+        },
+      },
+    },
+  });
+  if (!message) return;
+
+  const fromBuyer = message.senderUserId === message.thread.buyerUserId;
+  const recipientUserId = fromBuyer ? message.thread.seller.ownerId : message.thread.buyerUserId;
+  const link = fromBuyer ? `/sell/messages/${message.thread.id}` : `/account/messages/${message.thread.id}`;
+  const title = fromBuyer
+    ? `New message about order ${message.thread.order.orderNumber}`
+    : `${message.thread.seller.storeName} replied about order ${message.thread.order.orderNumber}`;
+  const preview = message.body.length > 140 ? `${message.body.slice(0, 140)}…` : message.body;
+
+  await createOnce({
+    userId: recipientUserId,
+    type: "NEW_MESSAGE",
+    title,
+    body: preview,
+    link,
+    dedupeKey: `message-sent:${messageId}`,
+  });
 }
 
 export async function listNotificationsForUser(userId: string, take = 50) {

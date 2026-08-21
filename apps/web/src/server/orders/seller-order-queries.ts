@@ -80,6 +80,7 @@ export async function getSellerOrderDetail(sellerId: string, orderNumber: string
       orderNumber: true,
       status: true,
       fulfilmentStatus: true,
+      userId: true,
       email: true,
       phone: true,
       shippingAddress: true,

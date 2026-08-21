@@ -290,9 +290,12 @@ seller domain existing first)
       comments — see tax-service.ts, shipping-service.ts — turning them
       into runtime-editable config is a real feature with its own real
       scope, not a checkbox to tick here). A buyer-seller messaging system
-      (named in the master mandate's admin list as "content" moderation
-      surface, but no messaging system exists yet to moderate — building
-      messaging AND its moderation UI is its own multi-part feature).
+      (named in the master mandate's admin list as a "content" moderation
+      surface) was deferred here as its own multi-part feature — since
+      built, see the "Buyer-seller order messaging" entry below. Its admin
+      moderation surface (staff visibility/takedown of an abusive thread)
+      is still NOT built — the same "half-built" reasoning that deferred
+      messaging itself now applies specifically to that follow-on piece.
 
 ### Post-roadmap: the mandate's own "do not stop when the TODO list is
 finished" instruction (section 28) — continuing past the 11-item roadmap
@@ -1681,12 +1684,84 @@ proved out this session — do not relax these just because the scope grew)
       the resulting real notification renders correctly on the seller's
       own `/account/notifications` page.
 
-### Current status / where to resume (2026-08-21, commit `be39fa6`)
+- [x] **Buyer-seller order messaging** — the master mandate's own
+      "buyer-seller messaging" line item (section 19's feature list),
+      confirmed still absent by grep and previously deliberately deferred
+      (see the commission-config entry above: "no messaging system exists
+      yet to moderate"). New `MessageThread`/`Message` models, scoped to a
+      specific (order, seller) pair — never a general "message this
+      seller from anywhere" inbox — so authorization stays trivial: a
+      buyer must own the order, a seller must have a real line in it,
+      the exact ownership-via-WHERE discipline every other feature this
+      session uses. A guest order (`Order.userId === null`) has no
+      account to open a thread with — refused explicitly by
+      `getOrCreateThreadForSeller`, not just hidden client-side; the
+      seller order-detail page checks `order.userId` before even
+      rendering the "Message the buyer" button. Pre-purchase questions
+      already have their own public `ProductQuestion` Q&A — this is a
+      separate, post-purchase, private channel ("where's my package",
+      "can I get a different size"), not a replacement for that.
+
+      One thread per (order, seller) via a real `@@unique([orderId,
+      sellerId])` constraint — a multi-vendor order gets one independent
+      thread per seller who sold into it. Per-side read tracking
+      (`buyerLastReadAt`/`sellerLastReadAt`) rather than a `readAt` on
+      each message — a thread has exactly two participants, so a
+      message's implicit recipient is always "whichever side didn't send
+      it." Deliberately never sorts the inbox by `MessageThread.updatedAt`
+      (documented directly on that column): marking a thread read alone
+      still touches `@updatedAt`, which would wrongly reorder the inbox
+      on a pure read, possibly burying a genuinely newer unread thread
+      under one just glanced at — inbox order is computed in application
+      code from each thread's latest real message timestamp instead.
+      New `NotificationType.NEW_MESSAGE` + `notifyNewMessage`, wired into
+      the worker's outbox dispatch under a new `message.sent` topic,
+      enqueued in the same transaction that creates the `Message` row.
+
+      Mark-as-read is deliberately NOT a side effect of the page's own
+      GET/RSC render — Next.js prefetches links on viewport visibility,
+      which would silently mark a thread read before a user ever actually
+      opened it (`recently-viewed-service.ts`'s `recordView` is a
+      documented, narrower exception to this rule for pure analytics;
+      a user-visible unread/read correctness signal is not a fit for the
+      same exception). Instead a tiny client component fires the mark-read
+      Server Action once from a mount-effect, the standard real-world
+      pattern for this exact problem.
+
+      12 new integration tests in `message-service.integration.test.ts`
+      (thread open/idempotent-reopen for both sides, cross-user and
+      cross-seller/unrelated-seller refusal, guest-order refusal, a real
+      two-seller multi-vendor order producing two fully independent
+      threads with no cross-contamination, empty-body rejection, and the
+      full per-side unread state machine across a real reply exchange)
+      plus 3 new tests for `notifyNewMessage` in
+      `notification-service.integration.test.ts` (correct recipient by
+      sender side, idempotent under real outbox redelivery). Full
+      regression suite (72 unit, 235 integration, run twice) and a
+      production build all pass. Real HTTP E2E: seeded a real buyer,
+      seller, product, and paid order; logged in as the buyer, opened the
+      real "Message the seller" form on `/account/orders/SC-VERIFYMSG1`
+      (one button per distinct seller in the order), confirmed the real
+      redirect to a real new thread, and posted a real message through
+      the real reply form. Logged in as the seller, confirmed the message
+      appears on `/sell/messages`, called `notifyNewMessage` directly
+      against the real message (the worker trigger itself needs the same
+      SantimPay env config this environment doesn't carry, already
+      documented for every other worker-triggered feature this session),
+      confirmed the real unread dot and "1 unread" bell badge, replied
+      through the real seller-side form, and confirmed the buyer's own
+      `/account/messages` inbox and thread page show the real reply with
+      its own real unread indicator after a second `notifyNewMessage`
+      call. Confirmed a signed-in stranger gets a real 404 on the buyer's
+      thread URL by id-guessing. All seeded data and verify scripts
+      cleaned up afterward.
+
+### Current status / where to resume (2026-08-21, commit `PENDING`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
 watched to a real, uncontested completion, per this session's own working
-discipline above. Full regression suite (typecheck, lint, 72 unit, 220
+discipline above. Full regression suite (typecheck, lint, 72 unit, 235
 integration) and a production build all pass cleanly as of this commit.
 
 Deliberately still out of scope, not oversights — both genuinely blocked
@@ -1719,8 +1794,8 @@ reset, self-service password change, admin customer suspension, seller
 self-service storefront settings, order delivery notes, seller low-stock
 alerts, compare-at pricing, SEO title/description, self-service account
 deletion, related products, the ProductCard low-stock badge fix, an
-admin audit log, product Q&A moderation, self-service data export, seller order search/filter, customer order search, admin users CSV export, seller vacation mode, seller "new sale" notification, and
-more, each confirmed genuinely absent before being built). No further
+admin audit log, product Q&A moderation, self-service data export, seller order search/filter, customer order search, admin users CSV export, seller vacation mode, seller "new sale" notification, buyer-seller order
+messaging, and more, each confirmed genuinely absent before being built). No further
 specific candidate is currently queued — the systematic dead-field
 audit's one remaining finding, `User.emailVerifiedAt`, is confirmed dead
 but correctly out of scope (see the compare-at entry above for why).

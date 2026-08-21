@@ -34,6 +34,7 @@ export default async function AccountPage({ searchParams }: Props) {
       <div style={{ display: "flex", gap: "var(--space-3)", marginBottom: "var(--space-6)" }}>
         <Link href="/account/addresses" className="btn btn--secondary">Manage addresses</Link>
         <Link href="/account/wishlist" className="btn btn--secondary">Your wishlist</Link>
+        <Link href="/account/messages" className="btn btn--secondary">Messages</Link>
         <Link href="/account/security" className="btn btn--secondary">Password</Link>
       </div>
 

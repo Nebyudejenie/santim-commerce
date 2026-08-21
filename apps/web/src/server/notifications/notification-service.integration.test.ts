@@ -18,6 +18,7 @@ import {
   markAsRead,
   notifyBackInStock,
   notifyLowStock,
+  notifyNewMessage,
   notifyOrderLineFulfilled,
   notifyOrderPaid,
   notifyOrderPaymentFailed,
@@ -376,7 +377,79 @@ test("markAsRead only affects the real owner's own notification, and markAllAsRe
   assert.equal(await getUnreadCount(userId), 0);
 });
 
+async function makeThreadWithMessage(
+  orderId: string,
+  sellerId: string,
+  buyerUserId: string,
+  senderUserId: string,
+  body: string,
+) {
+  const thread = await prisma.messageThread.upsert({
+    where: { orderId_sellerId: { orderId, sellerId } },
+    create: { orderId, sellerId, buyerUserId },
+    update: {},
+  });
+  const message = await prisma.message.create({ data: { threadId: thread.id, senderUserId, body } });
+  return { threadId: thread.id, messageId: message.id };
+}
+
+test("notifyNewMessage notifies the SELLER when the buyer sends the first message", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const userId = await makeBuyer(suffix);
+  const { sellerId, variantId } = await makeSellerWithProduct(suffix);
+  const seller = await prisma.seller.findUniqueOrThrow({ where: { id: sellerId } });
+  const { orderId } = await makeOrder(suffix, userId, sellerId, variantId);
+  const { threadId, messageId } = await makeThreadWithMessage(orderId, sellerId, userId, userId, "Where's my order?");
+
+  await notifyNewMessage(messageId);
+
+  const list = await listNotificationsForUser(seller.ownerId);
+  assert.equal(list.length, 1);
+  assert.equal(list[0]!.type, "NEW_MESSAGE");
+  assert.equal(list[0]!.link, `/sell/messages/${threadId}`);
+});
+
+test("notifyNewMessage notifies the BUYER when the seller replies", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const userId = await makeBuyer(suffix);
+  const { sellerId, variantId } = await makeSellerWithProduct(suffix);
+  const seller = await prisma.seller.findUniqueOrThrow({ where: { id: sellerId } });
+  const { orderId } = await makeOrder(suffix, userId, sellerId, variantId);
+  const { threadId, messageId } = await makeThreadWithMessage(
+    orderId,
+    sellerId,
+    userId,
+    seller.ownerId,
+    "It ships tomorrow.",
+  );
+
+  await notifyNewMessage(messageId);
+
+  const list = await listNotificationsForUser(userId);
+  assert.equal(list.length, 1);
+  assert.equal(list[0]!.type, "NEW_MESSAGE");
+  assert.equal(list[0]!.link, `/account/messages/${threadId}`);
+  assert.ok(list[0]!.title.includes(seller.storeName));
+});
+
+test("notifyNewMessage is idempotent under real outbox redelivery — no duplicate per message", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const userId = await makeBuyer(suffix);
+  const { sellerId, variantId } = await makeSellerWithProduct(suffix);
+  const seller = await prisma.seller.findUniqueOrThrow({ where: { id: sellerId } });
+  const { orderId } = await makeOrder(suffix, userId, sellerId, variantId);
+  const { messageId } = await makeThreadWithMessage(orderId, sellerId, userId, userId, "Hello?");
+
+  await notifyNewMessage(messageId);
+  await notifyNewMessage(messageId); // simulates a redelivered "message.sent" outbox message
+
+  const list = await listNotificationsForUser(seller.ownerId);
+  assert.equal(list.length, 1, "a redelivered message.sent event must not double-notify");
+});
+
 test.after(async () => {
+  await prisma.message.deleteMany({ where: { thread: { order: { orderNumber: { startsWith: "SC-NOTIF-" } } } } });
+  await prisma.messageThread.deleteMany({ where: { order: { orderNumber: { startsWith: "SC-NOTIF-" } } } });
   await prisma.notification.deleteMany({ where: { user: { email: { startsWith: "notif-" } } } });
   await prisma.backInStockRequest.deleteMany({ where: { variant: { product: { slug: { startsWith: "notif-test-" } } } } });
   await prisma.returnRequest.deleteMany({ where: { order: { orderNumber: { startsWith: "SC-NOTIF-" } } } });

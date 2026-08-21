@@ -6,6 +6,7 @@ import { StatusPill } from "@/components/status-pill";
 import { Money } from "@/components/money";
 import { ProductImage } from "@/components/product-image";
 import { FulfilmentToggle } from "@/components/fulfilment-toggle";
+import { OpenSellerThreadButton } from "@/components/open-seller-thread-button";
 
 export const dynamic = "force-dynamic";
 
@@ -99,6 +100,11 @@ export default async function SellerOrderDetailPage({ params }: Props) {
           <p style={{ fontSize: "var(--text-sm)", color: "var(--fg-muted)", whiteSpace: "pre-wrap" }}>{order.customerNote}</p>
         </div>
       )}
+
+      {/* Guest orders (no userId) have no account to open a thread with —
+          see message-service.ts's own comment on why this is refused, not
+          just hidden client-side. */}
+      {order.userId && <OpenSellerThreadButton orderNumber={order.orderNumber} />}
     </div>
   );
 }

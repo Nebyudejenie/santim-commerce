@@ -83,6 +83,7 @@ model Seller {
   ledgerEntries SellerLedgerEntry[]
   coupons      Coupon[]
   answeredQuestions ProductQuestion[]
+  messageThreads MessageThread[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -642,6 +643,8 @@ model User {
   backInStockRequests BackInStockRequest[]
   notifications Notification[]
   questionsAsked ProductQuestion[] @relation("QuestionsAsked")
+  messageThreadsAsBuyer MessageThread[]
+  messagesSent          Message[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -813,6 +816,7 @@ model Order {
   reviews        ProductReview[]
   returnRequests ReturnRequest[]
   couponRedemption CouponRedemption?
+  messageThreads MessageThread[]
 
   placedAt    DateTime @default(now())
   paidAt      DateTime?
@@ -1231,6 +1235,7 @@ enum NotificationType {
   BACK_IN_STOCK
   LOW_STOCK
   NEW_SALE
+  NEW_MESSAGE
 }
 
 /// At most one shipping label per order — `orderId` is `@unique`, not just
@@ -1277,4 +1282,72 @@ enum ShippingLabelStatus {
   PENDING   // key persisted, carrier not yet called (or in flight)
   GENERATED // carrier returned a real label
   FAILED
+}
+
+/// Buyer-seller order messaging — the master mandate's own "buyer-seller
+/// messaging" line item, confirmed absent and deliberately deferred
+/// earlier (see PROJECT-EXECUTION-STATE.md's commission-config entry) as
+/// its own multi-part feature rather than half-built alongside admin
+/// content moderation. Scoped to a specific (order, seller) pair, not a
+/// general "message this seller from anywhere" inbox — this keeps
+/// authorization trivial (buyer must own the order; seller must have a
+/// real line in it) and matches the real post-purchase use case a
+/// marketplace needs most ("where's my package", "can I get a different
+/// size"). Pre-purchase questions already have their own, public,
+/// ProductQuestion Q&A — this is not a replacement for that.
+///
+/// One thread per (order, seller): a multi-vendor order gets one separate
+/// thread per seller that sold into it, never one thread spanning sellers
+/// who have no business seeing each other's conversation with the buyer.
+model MessageThread {
+  id String @id @default(cuid())
+
+  orderId String
+  // Restrict, not Cascade: same "historical record, not a view" guardrail
+  // as ReturnRequest/OrderLine's own Order relation — no code path deletes
+  // an Order today, and this must never be the thing that makes it possible.
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  sellerId String
+  seller   Seller @relation(fields: [sellerId], references: [id], onDelete: Restrict)
+
+  buyerUserId String
+  buyer       User   @relation(fields: [buyerUserId], references: [id], onDelete: Restrict)
+
+  /// Per-side read tracking, not a readAt on each Message: a thread has
+  /// exactly two participants, and each message's implicit recipient is
+  /// always "whichever side did not send it" — so unread state for a side
+  /// is just "the latest message wasn't sent by me, and it's newer than
+  /// MY OWN lastReadAt", no per-message recipient row needed.
+  buyerLastReadAt  DateTime?
+  sellerLastReadAt DateTime?
+
+  messages Message[]
+
+  createdAt DateTime @default(now())
+  /// NOTE for anyone tempted to sort an inbox by this: it also moves on a
+  /// pure read-mark (see message-service.ts's own comment) — inbox
+  /// ordering is by each thread's latest MESSAGE time, computed in
+  /// application code, deliberately never this column.
+  updatedAt DateTime @updatedAt
+
+  @@unique([orderId, sellerId])
+  @@index([buyerUserId])
+  @@index([sellerId])
+  @@map("message_threads")
+}
+
+model Message {
+  id       String        @id @default(cuid())
+  threadId String
+  thread   MessageThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  senderUserId String
+  sender       User   @relation(fields: [senderUserId], references: [id], onDelete: Restrict)
+  body         String @db.Text
+
+  createdAt DateTime @default(now())
+
+  @@index([threadId, createdAt])
+  @@map("messages")
 }

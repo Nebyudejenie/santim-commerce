@@ -8,6 +8,7 @@ import { StatusPill } from "@/components/status-pill";
 import { ProductImage } from "@/components/product-image";
 import { RequestReturnButton } from "@/components/request-return-button";
 import { CancelOrderButton } from "@/components/cancel-order-button";
+import { OpenBuyerThreadButton } from "@/components/open-buyer-thread-button";
 
 export const metadata: Metadata = { title: "Order details" };
 export const dynamic = "force-dynamic";
@@ -24,6 +25,11 @@ export default async function AccountOrderDetailPage({ params }: Props) {
   // URL for someone else's order resolves to null, not their data.
   const order = await getOrderForUser(user.id, orderNumber);
   if (!order) notFound();
+
+  // One "Message seller" entry per DISTINCT seller in the order — a
+  // multi-vendor cart is real, and a buyer must pick which seller's
+  // thread they're opening, never one thread spanning unrelated sellers.
+  const sellers = Array.from(new Map(order.lines.map((l) => [l.seller.id, l.seller])).values());
 
   return (
     <div className="container" style={{ paddingBlock: "var(--space-7)", maxWidth: "760px" }}>
@@ -114,6 +120,20 @@ export default async function AccountOrderDetailPage({ params }: Props) {
         <div style={{ marginTop: "var(--space-6)" }}>
           <p style={{ fontWeight: 600, marginBottom: "var(--space-3)" }}>Your delivery notes</p>
           <p style={{ fontSize: "var(--text-sm)", color: "var(--fg-muted)", whiteSpace: "pre-wrap" }}>{order.customerNote}</p>
+        </div>
+      )}
+
+      {sellers.length > 0 && (
+        <div style={{ marginTop: "var(--space-6)" }}>
+          <p style={{ fontWeight: 600, marginBottom: "var(--space-3)" }}>Message the seller</p>
+          {sellers.map((seller) => (
+            <OpenBuyerThreadButton
+              key={seller.id}
+              orderNumber={order.orderNumber}
+              sellerId={seller.id}
+              sellerName={seller.storeName}
+            />
+          ))}
         </div>
       )}
     </div>

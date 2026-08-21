@@ -36,6 +36,7 @@ import { createLedgerEntriesForOrder } from "../server/orders/settlement-service
 import {
   notifyBackInStock,
   notifyLowStock,
+  notifyNewMessage,
   notifySellersOfNewSale,
   notifyOrderLineFulfilled,
   notifyOrderPaid,
@@ -259,6 +260,9 @@ async function deliver(topic: string, payload: unknown): Promise<void> {
   } else if (topic === "variant.low_stock") {
     const { variantId, alertCount } = payload as { variantId: string; alertCount: number };
     await notifyLowStock(variantId, alertCount);
+  } else if (topic === "message.sent") {
+    const { messageId } = payload as { messageId: string };
+    await notifyNewMessage(messageId);
   }
   logger.info("outbox.delivered", { topic, payload });
 }
