@@ -170,20 +170,19 @@ export async function updateVariantAction(
 
   const variantId = String(formData.get("variantId") ?? "");
   const productId = String(formData.get("productId") ?? "");
-  const activeRaw = formData.get("active");
 
   try {
     await updateVariant(sellerId, variantId, {
       priceBirr: String(formData.get("priceBirr") ?? ""),
       onHand: Number(formData.get("onHand") ?? ""),
-      active: activeRaw === null ? undefined : activeRaw === "on",
+      // Always a real boolean, never undefined — see variant-editor.tsx's
+      // own comment on the hidden fallback field that makes an unchecked
+      // checkbox actually submit "false" instead of nothing at all.
+      active: formData.get("active") === "on",
       lowStockThreshold: Number(formData.get("lowStockThreshold") ?? ""),
       compareAtBirr: String(formData.get("compareAtBirr") ?? ""),
       optionName: String(formData.get("optionName") ?? ""),
       optionValue: String(formData.get("optionValue") ?? ""),
-      // Always a real boolean, never undefined-when-unchecked (unlike
-      // `active` above) — a checkbox that can only ever be turned ON
-      // through this form, never back off, would be its own real bug.
       allowBackorder: formData.get("allowBackorder") === "on",
     });
   } catch (error) {

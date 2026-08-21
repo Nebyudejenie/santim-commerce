@@ -88,6 +88,14 @@ export function VariantRow({ productId, variant }: VariantRowProps) {
       />
       <label style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "var(--text-sm)" }}>
         <input type="checkbox" name="active" defaultChecked={variant.active} />
+        {/* An unchecked checkbox submits NOTHING at all — this hidden
+            fallback, placed AFTER it in DOM order, is what makes
+            unchecking-then-saving actually turn a variant off. Browsers
+            submit both same-named fields in DOM order when checked
+            ("on" first, "false" second); FormData.get() returns the
+            FIRST match, so checked still reads "on". Unchecked, only
+            this hidden field submits, so it correctly reads "false". */}
+        <input type="hidden" name="active" value="false" />
         Active
       </label>
       <label

@@ -2142,12 +2142,47 @@ proved out this session — do not relax these just because the scope grew)
       "always show available now." All seeded data and verify scripts
       cleaned up afterward.
 
-### Current status / where to resume (2026-08-22, commit `88147ce`)
+- [x] **Fixed: "Active" variant checkbox could never turn a variant back
+      off** — the exact P2 finding logged in the previous entry, confirmed
+      real and fixed now rather than left open. `updateVariantAction` read
+      `formData.get("active")`, and an UNCHECKED checkbox submits nothing
+      at all in a real browser — so `activeRaw === null` was treated as
+      "field absent, leave unchanged" instead of "seller explicitly
+      unchecked it," meaning a seller could enable a variant through this
+      form but never disable one again afterward.
+
+      Fixed with the standard, correct HTML pattern: a hidden
+      `<input type="hidden" name="active" value="false" />` placed
+      immediately AFTER the visible checkbox in `variant-editor.tsx`.
+      Browsers submit same-named fields in DOM order; `FormData.get()`
+      returns the FIRST match — so a checked box submits the checkbox's
+      "on" first (read as true), while an unchecked one submits only the
+      hidden field's "false" (read as false, since it's now the only
+      entry present). The action now reads
+      `formData.get("active") === "on"` unconditionally, always a real
+      boolean, matching the same pattern just established for the new
+      `allowBackorder` checkbox. `updateVariant`'s own service-layer
+      `active?: boolean` stayed genuinely optional — `listing-bulk-
+      service.ts`'s CSV update path still legitimately never sets it,
+      and correctly still means "don't touch" there.
+
+      1 new integration test confirming `updateVariant`'s own DB-level
+      behavior toggles both ways (the service layer was never actually
+      broken; the bug was entirely in the FormData-to-input translation).
+      Full regression (72 unit, 265 integration, run twice) and a
+      production build pass — no schema change. Real HTTP E2E: replicated
+      the EXACT multipart field ordering a real browser produces for
+      both states (checked: `active=on` then `active=false`; unchecked:
+      `active=false` alone) against the real seller edit form, and
+      confirmed the real variant's `active` column genuinely flipped both
+      directions in the database.
+
+### Current status / where to resume (2026-08-22, commit `PENDING`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
 watched to a real, uncontested completion, per this session's own working
-discipline above. Full regression suite (typecheck, lint, 72 unit, 264
+discipline above. Full regression suite (typecheck, lint, 72 unit, 265
 integration) and a production build all pass cleanly as of this commit.
 
 Deliberately still out of scope, not oversights — both genuinely blocked
@@ -2185,7 +2220,8 @@ messaging, admin message moderation, return dispute escalation,
 application-level login brute-force protection, wishlist price-drop
 alerts, bulk update-by-SKU CSV import, wiring the broken
 Variant.options multi-variant selector, wiring Inventory.allowBackorder,
-and more, each confirmed genuinely absent before being built). No further
+fixing the seller variant "Active" checkbox that could never turn back
+off, and more, each confirmed genuinely absent before being built). No further
 specific candidate is currently queued — the systematic dead-field
 audit's one remaining finding, `User.emailVerifiedAt`, is confirmed dead
 but correctly out of scope (see the compare-at entry above for why).
@@ -2428,16 +2464,9 @@ validation against a real cluster, backup/restore) may still surface P1s
   deliberately left out, see that entry's own reasoning.
 - Known-unmergeable Dependabot PRs left open by design: #9 (Prisma 7),
   #10 (Next.js 16), #14 (TypeScript 7).
-- `VariantRow`'s "Active" checkbox (`variant-editor.tsx`) appears to be
-  able to turn a variant ON but never back OFF through this form: its
-  action reads `formData.get("active")` and treats an absent value (an
-  unchecked checkbox submits nothing) as "leave unchanged" rather than
-  "set to false," so unchecking and saving is indistinguishable from
-  never touching it at all. Noticed while wiring the NEW `allowBackorder`
-  checkbox (deliberately given different, always-both-ways-toggleable
-  semantics instead of copying this one) — not confirmed with a test or
-  fixed, since it's a separate, pre-existing field unrelated to that
-  change. Worth a dedicated look.
+- ~~`VariantRow`'s "Active" checkbox could turn a variant ON but never
+  back OFF~~ — FIXED, see the "Fixed: 'Active' variant checkbox" roadmap
+  entry above.
 - CSP is conservative (no `script-src`/`style-src` lockdown) — a fuller
   policy is real follow-up work, not done this pass to avoid an unverified
   risk of breaking the app.

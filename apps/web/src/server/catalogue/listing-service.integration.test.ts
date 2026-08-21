@@ -140,6 +140,23 @@ test("allowBackorder is real, writable state — set on createProduct, addVarian
   assert.equal(afterTurningOff?.variants.find((v) => v.id === firstVariantId)?.inventory?.allowBackorder, false);
 });
 
+test("updateVariant's active flag toggles both ways — the real fix is in the FORM layer (an unchecked checkbox now genuinely submits false, see updateVariantAction), but this is the DB-level behavior that fix depends on", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const sellerId = await makeSeller(`activetoggle-${suffix}`);
+  const product = await createProduct(sellerId, baseInput(`activetoggle-${suffix}`));
+  const owned = await getSellerProduct(sellerId, product.id);
+  const variantId = owned!.variants[0]!.id;
+  assert.equal(owned!.variants[0]!.active, true, "a new variant starts active");
+
+  await updateVariant(sellerId, variantId, { active: false });
+  const deactivated = await getSellerProduct(sellerId, product.id);
+  assert.equal(deactivated?.variants[0]?.active, false);
+
+  await updateVariant(sellerId, variantId, { active: true });
+  const reactivated = await getSellerProduct(sellerId, product.id);
+  assert.equal(reactivated?.variants[0]?.active, true);
+});
+
 test("publishing requires a variant, and DRAFT -> ACTIVE -> ARCHIVED -> ACTIVE is legal", async () => {
   const sellerId = await makeSeller(`publish-${Math.random().toString(36).slice(2, 8)}`);
   const product = await createProduct(sellerId, baseInput("B"));
