@@ -1470,7 +1470,7 @@ proved out this session — do not relax these just because the scope grew)
       decision, the same complexity already deferred for compare-at
       pricing's own grid-card display.)
 
-### Current status / where to resume (2026-08-21, commit `PENDING`)
+### Current status / where to resume (2026-08-21, commit `2155890`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
