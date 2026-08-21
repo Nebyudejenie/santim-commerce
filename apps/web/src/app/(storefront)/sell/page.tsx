@@ -58,6 +58,9 @@ export default async function SellPage() {
                 <Link href="/sell/reputation" className="btn btn--secondary" style={{ flex: 1 }}>
                   Your reputation
                 </Link>
+                <Link href="/sell/settings" className="btn btn--secondary" style={{ flex: 1 }}>
+                  Store settings
+                </Link>
               </div>
             )}
           </>

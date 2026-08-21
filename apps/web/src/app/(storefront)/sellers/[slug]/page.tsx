@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { ProductCard } from "@/components/product-card";
+import { ProductImage } from "@/components/product-image";
 import { SellerTrustSignals } from "@/components/seller-trust-signals";
 import { getSellerStorefront } from "@/server/catalogue/catalogue-service";
 import { getSellerReputation } from "@/server/sellers/seller-reputation-service";
@@ -28,7 +29,10 @@ export default async function SellerStorefrontPage({ params }: Props) {
 
   return (
     <div className="container" style={{ paddingBlock: "var(--space-7)" }}>
-      <div className="section-head">
+      <div className="section-head" style={{ alignItems: "center", gap: "var(--space-3)" }}>
+        {seller.logoUrl && (
+          <ProductImage src={seller.logoUrl} alt={`${seller.storeName} logo`} width={48} height={48} style={{ borderRadius: "var(--radius-full)", objectFit: "cover" }} />
+        )}
         <h2>{seller.storeName}</h2>
       </div>
       {seller.description && (

@@ -98,6 +98,41 @@ export async function getSellerByOwnerId(userId: string) {
   return prisma.seller.findUnique({ where: { ownerId: userId } });
 }
 
+export interface UpdateSellerProfileInput {
+  readonly storeName: string;
+  readonly description?: string;
+  readonly logoUrl?: string;
+}
+
+/**
+ * Self-service storefront profile edit — confirmed absent: `storeName`,
+ * `description`, and `logoUrl` were only ever set once, at
+ * `applyToBecomeSeller` time, with no way for a seller to update their own
+ * public-facing profile afterward. `slug` is deliberately NOT editable
+ * here — it's the store's real URL (`/sellers/[slug]`), and changing it
+ * would break every existing link/bookmark to the store, the same
+ * "URLs are permanent identifiers" reasoning product/order slugs already
+ * get elsewhere in this codebase. No format validation on `logoUrl` beyond
+ * trimming — matches this codebase's existing, equally lightweight
+ * `imageUrl` handling for products (there's no real upload pipeline; both
+ * are plain pasted URLs).
+ */
+export async function updateSellerProfile(sellerId: string, input: UpdateSellerProfileInput) {
+  const storeName = input.storeName.trim();
+  if (storeName.length < 2) {
+    throw new SellerError("Store name must be at least 2 characters.");
+  }
+
+  return prisma.seller.update({
+    where: { id: sellerId },
+    data: {
+      storeName,
+      description: input.description?.trim() || null,
+      logoUrl: input.logoUrl?.trim() || null,
+    },
+  });
+}
+
 export async function getSellerBySlug(slug: string) {
   return prisma.seller.findUnique({ where: { slug } });
 }

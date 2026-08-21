@@ -17,6 +17,7 @@ import {
   SellerError,
   setSellerCommission,
   suspendSeller,
+  updateSellerProfile,
 } from "./seller-service.ts";
 import { createLedgerEntriesForOrder } from "../orders/settlement-service.ts";
 
@@ -225,6 +226,49 @@ test("changing a seller's commission does not retroactively alter an already-set
   await prisma.order.delete({ where: { id: order.id } });
   await prisma.variant.delete({ where: { id: variant.id } });
   await prisma.product.delete({ where: { id: product.id } });
+});
+
+test("updateSellerProfile updates storeName/description/logoUrl but never slug", async () => {
+  const userId = await makeUser(`profile-${Math.random().toString(36).slice(2, 8)}`);
+  const seller = await applyToBecomeSeller({ userId, storeName: "Original Name", description: "Original description" });
+  const originalSlug = seller.slug;
+
+  await updateSellerProfile(seller.id, {
+    storeName: "  Updated Name  ",
+    description: "  Updated description  ",
+    logoUrl: "  https://example.et/logo.png  ",
+  });
+
+  const updated = await prisma.seller.findUniqueOrThrow({ where: { id: seller.id } });
+  assert.equal(updated.storeName, "Updated Name", "must be trimmed");
+  assert.equal(updated.description, "Updated description");
+  assert.equal(updated.logoUrl, "https://example.et/logo.png");
+  assert.equal(updated.slug, originalSlug, "the store URL must never change from a profile edit");
+});
+
+test("updateSellerProfile clears description/logoUrl when given blank input", async () => {
+  const userId = await makeUser(`profile-clear-${Math.random().toString(36).slice(2, 8)}`);
+  const seller = await applyToBecomeSeller({ userId, storeName: "Has Extras", description: "Will be cleared" });
+  await prisma.seller.update({ where: { id: seller.id }, data: { logoUrl: "https://example.et/old.png" } });
+
+  await updateSellerProfile(seller.id, { storeName: "Has Extras", description: "", logoUrl: "" });
+
+  const updated = await prisma.seller.findUniqueOrThrow({ where: { id: seller.id } });
+  assert.equal(updated.description, null);
+  assert.equal(updated.logoUrl, null);
+});
+
+test("updateSellerProfile rejects a store name that's too short", async () => {
+  const userId = await makeUser(`profile-short-${Math.random().toString(36).slice(2, 8)}`);
+  const seller = await applyToBecomeSeller({ userId, storeName: "Valid Name" });
+
+  await assert.rejects(
+    () => updateSellerProfile(seller.id, { storeName: "x" }),
+    (err: unknown) => err instanceof SellerError && /at least 2 characters/.test(err.message),
+  );
+
+  const unchanged = await prisma.seller.findUniqueOrThrow({ where: { id: seller.id } });
+  assert.equal(unchanged.storeName, "Valid Name", "a rejected update must not have touched the row");
 });
 
 test.after(async () => {

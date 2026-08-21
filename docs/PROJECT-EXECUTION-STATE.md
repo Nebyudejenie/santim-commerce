@@ -1131,12 +1131,48 @@ proved out this session — do not relax these just because the scope grew)
       RSC flight duplicate. Full regression suite (72 unit, 179
       integration) and a production build pass.
 
-### Current status / where to resume (2026-08-21, commit `2f780ef`)
+- [x] **Seller self-service storefront settings** — confirmed a real gap:
+      `storeName`, `description`, and `logoUrl` all exist on the `Seller`
+      model but were only ever set ONCE, at application time
+      (`applyToBecomeSeller`) — an approved seller had no way to update
+      their own public-facing profile ever again. `logoUrl` specifically
+      was doubly dead: not just uneditable, but never even rendered
+      anywhere — set at signup, displayed nowhere, forever.
+
+      New `updateSellerProfile(sellerId, {...})` in seller-service.ts.
+      `slug` is deliberately NOT editable — it's the store's real URL
+      (`/sellers/[slug]`), and changing it would break every existing
+      link/bookmark, the same "URLs are permanent identifiers" reasoning
+      already applied to product/order slugs elsewhere in this codebase.
+      No format validation on `logoUrl` beyond trimming, matching this
+      codebase's equally lightweight existing `imageUrl` handling for
+      products — there's no real upload pipeline for either, both are
+      plain pasted URLs. New `updateSellerProfileAction` follows this
+      session's own established discipline: calls `requireApprovedSeller`
+      itself rather than trusting the page gate, and never trusts a
+      client-supplied sellerId — it's always the caller's own seller
+      record. New `/sell/settings` page, linked from the seller dashboard.
+      Also wired the previously-dead `logoUrl` into the actual public
+      storefront page next to the store name, since building "edit a
+      field nothing ever displays" would have been half a feature.
+
+      3 new integration tests (trims and applies real updates; blank
+      input clears description/logoUrl to null rather than leaving stale
+      values; a too-short store name is rejected and changes nothing).
+      Full regression suite (72 unit, 182 integration) and a production
+      build pass. Verified end-to-end over real HTTP: the storefront page
+      showing the original name/description with no logo, a real signed-
+      in seller submitting a real profile update via Next's actual Server
+      Action form-POST protocol, the storefront then showing the new
+      name/description/logo with the old name gone, and the store's slug
+      (its real URL) confirmed unchanged in the database throughout.
+
+### Current status / where to resume (2026-08-21, commit `PENDING`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
 watched to a real, uncontested completion, per this session's own working
-discipline above. Full regression suite (typecheck, lint, 72 unit, 179
+discipline above. Full regression suite (typecheck, lint, 72 unit, 182
 integration) and a production build all pass cleanly as of this commit.
 
 Deliberately still out of scope, not oversights — both genuinely blocked
@@ -1165,7 +1201,8 @@ a real marketplace needs, don't assume; several rounds of this already
 found wishlist, notifications, seller coupons, product Q&A, bulk CSV
 import/export, back-in-stock notifications, admin payout recording,
 customer order cancellation, guest order lookup, admin-assisted password
-reset, self-service password change, admin customer suspension, and
+reset, self-service password change, admin customer suspension, seller
+self-service storefront settings, and
 more, each confirmed genuinely absent before being built). No further
 specific candidate is
 currently queued — gift cards / store credit was considered and

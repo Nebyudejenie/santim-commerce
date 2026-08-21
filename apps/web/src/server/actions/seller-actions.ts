@@ -14,9 +14,11 @@ import {
   applyToBecomeSeller,
   approveSeller,
   rejectSeller,
+  requireApprovedSeller,
   SellerError,
   setSellerCommission,
   suspendSeller,
+  updateSellerProfile,
 } from "../sellers/seller-service.js";
 import { logger } from "../observability/logger.js";
 
@@ -41,6 +43,28 @@ export async function applyToBecomeSellerAction(
     if (error instanceof SellerError) return { ok: false, message: error.message };
     logger.error("seller.apply_action_failed", { userId: user.id, error: (error as Error).message });
     return { ok: false, message: "Something went wrong submitting your application. Please try again." };
+  }
+}
+
+export async function updateSellerProfileAction(
+  _prev: SellerActionState,
+  formData: FormData,
+): Promise<SellerActionState> {
+  const user = await requireUser();
+  const storeName = String(formData.get("storeName") ?? "");
+  const description = String(formData.get("description") ?? "").trim() || undefined;
+  const logoUrl = String(formData.get("logoUrl") ?? "").trim() || undefined;
+
+  try {
+    const seller = await requireApprovedSeller(user.id);
+    await updateSellerProfile(seller.id, { storeName, description, logoUrl });
+    revalidatePath("/sell");
+    revalidatePath(`/sellers/${seller.slug}`);
+    return { ok: true, message: "Store profile updated." };
+  } catch (error) {
+    if (error instanceof SellerError) return { ok: false, message: error.message };
+    logger.error("seller.update_profile_action_failed", { userId: user.id, error: (error as Error).message });
+    return { ok: false, message: "Something went wrong. Please try again." };
   }
 }
 
