@@ -287,8 +287,23 @@ model Inventory {
   reserved  Int     @default(0)
   /// Allow selling below zero (backorder)?
   allowBackorder Boolean @default(false)
-  /// Below this, the storefront shows "only N left".
+  /// Below this, the storefront shows "only N left" AND the seller gets a
+  /// real low-stock alert (see low-stock-service.ts) — confirmed this
+  /// field existed but was completely unused anywhere in the codebase
+  /// before that fix: the storefront hardcoded its own "only N left" at
+  /// <= 5 instead of reading this, and no seller notification existed at
+  /// all.
   lowStockThreshold Int  @default(5)
+  /// Set the moment a real low-stock alert has fired for the CURRENT dip
+  /// below threshold — null again once stock is topped back up to/above
+  /// threshold, re-arming for the next real dip. Mirrors
+  /// BackInStockRequest's own notifiedAt/notificationCount re-arm design
+  /// (a real bug found and fixed earlier this session) for the identical
+  /// reason: `lowStockAlertCount` below, not this flag, is what the
+  /// notification's dedupeKey uses, since resetting THIS flag on recovery
+  /// must never let a later alert collide with an earlier cycle's key.
+  lowStockAlertedAt  DateTime?
+  lowStockAlertCount Int       @default(0)
 
   updatedAt DateTime @updatedAt
 
@@ -1148,6 +1163,7 @@ enum NotificationType {
   RETURN_REJECTED
   QUESTION_ANSWERED
   BACK_IN_STOCK
+  LOW_STOCK
 }
 
 /// At most one shipping label per order — `orderId` is `@unique`, not just

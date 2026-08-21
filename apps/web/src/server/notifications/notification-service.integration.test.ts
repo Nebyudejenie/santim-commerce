@@ -17,6 +17,7 @@ import {
   markAllAsRead,
   markAsRead,
   notifyBackInStock,
+  notifyLowStock,
   notifyOrderLineFulfilled,
   notifyOrderPaid,
   notifyOrderPaymentFailed,
@@ -250,6 +251,36 @@ test("a customer who re-requests after being notified gets a real second notific
 
   const request = await prisma.backInStockRequest.findFirstOrThrow({ where: { userId: requesterId, variantId } });
   assert.equal(request.notificationCount, 2);
+});
+
+test("notifyLowStock notifies the real seller who owns the variant, not a customer", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const { sellerId, variantId } = await makeSellerWithProduct(suffix);
+  const seller = await prisma.seller.findUniqueOrThrow({ where: { id: sellerId } });
+
+  await notifyLowStock(variantId, 1);
+
+  const list = await listNotificationsForUser(seller.ownerId);
+  assert.equal(list.length, 1);
+  assert.equal(list[0]!.type, "LOW_STOCK");
+  assert.ok(list[0]!.title.includes("Notif Test Item"));
+});
+
+test("notifyLowStock's dedupeKey includes alertCount, so a redelivered event and a genuine second alert are correctly distinguished", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const { sellerId, variantId } = await makeSellerWithProduct(suffix);
+  const seller = await prisma.seller.findUniqueOrThrow({ where: { id: sellerId } });
+
+  await notifyLowStock(variantId, 1);
+  await notifyLowStock(variantId, 1); // simulates a redelivered "variant.low_stock" outbox message
+
+  let list = await listNotificationsForUser(seller.ownerId);
+  assert.equal(list.length, 1, "a redelivered event with the SAME alertCount must not double-notify");
+
+  await notifyLowStock(variantId, 2); // a real second dip, after a restock re-armed the check
+
+  list = await listNotificationsForUser(seller.ownerId);
+  assert.equal(list.length, 2, "a genuinely new alertCount must produce a real second notification, not be silently swallowed");
 });
 
 test("markAsRead only affects the real owner's own notification, and markAllAsRead clears every unread one", async () => {

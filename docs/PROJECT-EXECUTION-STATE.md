@@ -1210,12 +1210,82 @@ proved out this session — do not relax these just because the scope grew)
       seller's order detail page, and the admin order detail page — each
       reached via its own real signed-in session where one was needed.
 
-### Current status / where to resume (2026-08-21, commit `987fa31`)
+- [x] **Seller low-stock alerts, and a real "only N left" bug fix** —
+      confirmed `Inventory.lowStockThreshold` already existed, with its own
+      schema comment promising "the storefront shows 'only N left'" — but
+      was completely unused: the storefront hardcoded its own `<= 5`
+      instead of reading it, and no seller-facing low-stock notification
+      existed anywhere (every prior `notifyX` in notification-service.ts
+      targeted a customer; sellers had zero proactive signal that their
+      own stock was running out). The same "field exists, comment
+      promises behavior, nothing wired" shape as `Seller.logoUrl` and
+      `Order.customerNote` earlier this session — the third instance of
+      this exact bug class found this run.
+
+      Fixed both halves. Customer-facing: the product page now threads
+      the REAL per-variant `lowStockThreshold` through to
+      `add-to-cart-form.tsx`'s stock note instead of a fixed number —
+      verified with a real, deliberately-chosen case (8 available, a
+      seller-set threshold of 10) that the OLD hardcoded logic would have
+      gotten wrong (8 > 5 would have shown "In stock"; the fix correctly
+      shows "Only 8 left"). Seller-facing: `lowStockThreshold` is now a
+      real, editable field on the variant-edit row (`updateVariant`), and
+      a new `low-stock-service.ts` — `enqueueLowStockCheck` — mirrors
+      back-in-stock-service.ts's own architecture but simpler (no
+      per-recipient request row; a seller doesn't opt in to hearing about
+      their own stock). Wired into the same transaction as every real
+      inventory-decreasing write: `payment-service.ts`'s
+      `commitReservations` (a real committed sale — the meaningful
+      signal, unlike a still-reversible HELD reservation) and
+      `listing-service.ts`'s `updateVariant` (a seller's own manual
+      correction, whether to stock or to the threshold itself).
+
+      Re-arm design deliberately mirrors BackInStockRequest's own
+      `notifiedAt`/`notificationCount` fix from earlier this session — new
+      `Inventory.lowStockAlertedAt` (cleared on recovery, re-arming for
+      the next real dip) and `lowStockAlertCount` (monotonic, NEVER
+      reset, feeding the notification's dedupeKey) — for the identical
+      reason: resetting the wrong field on recovery would let a later
+      alert collide with an earlier cycle's already-delivered
+      notification and be silently swallowed. New `NotificationType.
+      LOW_STOCK` and `notifyLowStock` — this module's first ever
+      SELLER-facing notification, not customer-facing.
+
+      13 new integration tests: 5 for `enqueueLowStockCheck` (healthy
+      no-op, fires once per real dip not once per unit sold while already
+      low, the exact re-arm-after-recovery scenario proven with a real
+      second alert and a real distinct dedupeKey-feeding count, and a
+      genuinely custom per-variant threshold respected), 2 for
+      `notifyLowStock` (targets the real seller owner, dedupeKey
+      correctly distinguishes a redelivered event from a genuine second
+      alert), 1 for `updateVariant`'s new threshold-setting and check-
+      triggering. Full regression suite (72 unit, 190 integration, run
+      twice clean given this touches the payment-critical inventory path)
+      and a production build pass.
+
+      Verified end-to-end over real HTTP: the product page showing "Only
+      8 left" for a real seeded 8-available/threshold-10 variant (the
+      exact case the old hardcoded logic got wrong); the seller's product-
+      edit page rendering the real current threshold in a real input; a
+      real threshold change submitted via Next's actual Server Action
+      form-POST protocol immediately flipping the customer-facing message
+      correctly; and a real HTTP-triggered stock update that crossed
+      below the new threshold producing a real, correctly-shaped message
+      in the actual outbox table. The one link deliberately not exercised
+      over HTTP — the worker process actually delivering that outbox
+      message — needs the same real SantimPay env config this environment
+      doesn't carry (worker/index.ts calls `env()` unconditionally at
+      startup, same blocker already documented for `customerNote`'s
+      checkout path this session); that link is instead fully covered by
+      `notifyLowStock`'s own 2 integration tests, calling the real
+      function against a real Postgres.
+
+### Current status / where to resume (2026-08-21, commit `PENDING`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
 watched to a real, uncontested completion, per this session's own working
-discipline above. Full regression suite (typecheck, lint, 72 unit, 182
+discipline above. Full regression suite (typecheck, lint, 72 unit, 190
 integration) and a production build all pass cleanly as of this commit.
 
 Deliberately still out of scope, not oversights — both genuinely blocked
@@ -1245,7 +1315,8 @@ found wishlist, notifications, seller coupons, product Q&A, bulk CSV
 import/export, back-in-stock notifications, admin payout recording,
 customer order cancellation, guest order lookup, admin-assisted password
 reset, self-service password change, admin customer suspension, seller
-self-service storefront settings, order delivery notes, and
+self-service storefront settings, order delivery notes, seller low-stock
+alerts, and
 more, each confirmed genuinely absent before being built). No further
 specific candidate is
 currently queued — gift cards / store credit was considered and

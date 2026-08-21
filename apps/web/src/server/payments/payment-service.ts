@@ -28,6 +28,7 @@ import { prisma, type Tx } from "../db.js";
 import { env, urls } from "../config/env.js";
 import { logger } from "../observability/logger.js";
 import { enqueue } from "../outbox.js";
+import { enqueueLowStockCheck } from "../catalogue/low-stock-service.js";
 import { santimpay } from "./santimpay-client.js";
 import {
   assertOrderTransition,
@@ -462,6 +463,11 @@ async function commitReservations(tx: Tx, orderId: string): Promise<void> {
       where: { id: reservation.id },
       data: { status: "COMMITTED" },
     });
+    // A real, committed sale — the meaningful signal for a seller to act
+    // on, unlike a still-reversible HELD reservation. Same transaction as
+    // the real inventory write, side effects through the outbox only —
+    // see low-stock-service.ts's own comment.
+    await enqueueLowStockCheck(tx, reservation.variantId);
   }
 }
 

@@ -163,6 +163,7 @@ export async function updateVariantAction(
       priceBirr: String(formData.get("priceBirr") ?? ""),
       onHand: Number(formData.get("onHand") ?? ""),
       active: activeRaw === null ? undefined : activeRaw === "on",
+      lowStockThreshold: Number(formData.get("lowStockThreshold") ?? ""),
     });
   } catch (error) {
     if (error instanceof ListingError) return { ok: false, message: error.message };

@@ -17,6 +17,7 @@ import { birr, MoneyError } from "@santim/santimpay";
 import { prisma } from "../db.js";
 import { logger } from "../observability/logger.js";
 import { enqueueBackInStockCheck } from "./back-in-stock-service.js";
+import { enqueueLowStockCheck } from "./low-stock-service.js";
 
 export class ListingError extends Error {
   override name = "ListingError";
@@ -228,6 +229,7 @@ export interface UpdateVariantInput {
   readonly priceBirr?: string;
   readonly onHand?: number;
   readonly active?: boolean;
+  readonly lowStockThreshold?: number;
 }
 
 /** Ownership is checked via the variant's OWN product, never trusted from the caller. */
@@ -243,19 +245,34 @@ export async function updateVariant(sellerId: string, variantId: string, input: 
 
   const updated = await prisma.variant.update({ where: { id: variantId }, data });
 
-  if (input.onHand !== undefined) {
-    if (!Number.isInteger(input.onHand) || input.onHand < 0) {
-      throw new ListingError("Stock quantity must be a non-negative whole number.");
+  if (input.onHand !== undefined || input.lowStockThreshold !== undefined) {
+    const inventoryData: Record<string, number> = {};
+    if (input.onHand !== undefined) {
+      if (!Number.isInteger(input.onHand) || input.onHand < 0) {
+        throw new ListingError("Stock quantity must be a non-negative whole number.");
+      }
+      inventoryData.onHand = input.onHand;
     }
-    // Absolute set, not a delta — this is a seller correcting their own
-    // stock count, not a reservation/sale event (those go through
-    // reservation.ts's atomic UPDATE, never through this path). The
-    // back-in-stock check runs in the SAME transaction as the real
-    // inventory write — side effects through the outbox, never a direct
-    // call outside the transaction that made the state change real.
+    if (input.lowStockThreshold !== undefined) {
+      if (!Number.isInteger(input.lowStockThreshold) || input.lowStockThreshold < 0) {
+        throw new ListingError("Low-stock alert threshold must be a non-negative whole number.");
+      }
+      inventoryData.lowStockThreshold = input.lowStockThreshold;
+    }
+    // Absolute sets, not deltas — this is a seller correcting their own
+    // stock count/alert threshold, not a reservation/sale event (those go
+    // through reservation.ts's atomic UPDATE, never through this path).
+    // Both checks run in the SAME transaction as the real inventory
+    // write — side effects through the outbox, never a direct call
+    // outside the transaction that made the state change real. Both are
+    // cheap, correctly-no-op'd queries when their own condition doesn't
+    // apply, so running both unconditionally here (rather than figuring
+    // out which one COULD possibly matter for this particular input) is
+    // simpler and just as correct.
     await prisma.$transaction(async (tx) => {
-      await tx.inventory.update({ where: { variantId }, data: { onHand: input.onHand } });
+      await tx.inventory.update({ where: { variantId }, data: inventoryData });
       await enqueueBackInStockCheck(tx, variantId);
+      await enqueueLowStockCheck(tx, variantId);
     });
   }
 

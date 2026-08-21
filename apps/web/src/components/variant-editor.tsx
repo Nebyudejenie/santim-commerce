@@ -7,7 +7,14 @@ const INITIAL_STATE: ListingActionState = { ok: false };
 
 interface VariantRowProps {
   productId: string;
-  variant: { id: string; title: string; sku: string; priceSantim: number; active: boolean; inventory: { onHand: number } | null };
+  variant: {
+    id: string;
+    title: string;
+    sku: string;
+    priceSantim: number;
+    active: boolean;
+    inventory: { onHand: number; lowStockThreshold: number } | null;
+  };
 }
 
 export function VariantRow({ productId, variant }: VariantRowProps) {
@@ -16,7 +23,7 @@ export function VariantRow({ productId, variant }: VariantRowProps) {
   return (
     <form
       action={formAction}
-      style={{ display: "grid", gridTemplateColumns: "1fr 100px 100px 90px auto", gap: "var(--space-3)", alignItems: "center", padding: "var(--space-3) 0", borderBottom: "1px solid var(--border)" }}
+      style={{ display: "grid", gridTemplateColumns: "1fr 100px 100px 110px 90px auto", gap: "var(--space-3)", alignItems: "center", padding: "var(--space-3) 0", borderBottom: "1px solid var(--border)" }}
     >
       <input type="hidden" name="variantId" value={variant.id} />
       <input type="hidden" name="productId" value={productId} />
@@ -39,6 +46,15 @@ export function VariantRow({ productId, variant }: VariantRowProps) {
         min="0"
         defaultValue={variant.inventory?.onHand ?? 0}
         aria-label="Stock quantity"
+      />
+      <input
+        name="lowStockThreshold"
+        type="number"
+        step="1"
+        min="0"
+        defaultValue={variant.inventory?.lowStockThreshold ?? 5}
+        aria-label="Low stock alert threshold"
+        title="Get notified when stock falls to or below this number"
       />
       <label style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "var(--text-sm)" }}>
         <input type="checkbox" name="active" defaultChecked={variant.active} />

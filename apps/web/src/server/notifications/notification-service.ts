@@ -33,7 +33,8 @@ async function createOnce(input: {
     | "ORDER_LINE_FULFILLED"
     | "RETURN_APPROVED"
     | "RETURN_REJECTED"
-    | "QUESTION_ANSWERED";
+    | "QUESTION_ANSWERED"
+    | "LOW_STOCK";
   title: string;
   body: string;
   link?: string;
@@ -184,6 +185,38 @@ export async function notifyBackInStock(variantId: string): Promise<void> {
       }
     });
   }
+}
+
+/**
+ * The first SELLER-facing notification in this module — every notifyX
+ * above targets a customer's userId. A seller's own Inventory has no
+ * per-recipient request row to fan out to (they don't opt in to hearing
+ * about their own stock), so this is a single-recipient `createOnce` call
+ * like ORDER_PAID etc., not the fan-out `notifyBackInStock` needs.
+ * `alertCount` comes from low-stock-service.ts's own atomic increment —
+ * baking it into the dedupeKey is what lets a later real dip (after a
+ * restock re-armed the check) produce a genuinely new key rather than
+ * colliding with an earlier cycle's already-delivered notification.
+ */
+export async function notifyLowStock(variantId: string, alertCount: number): Promise<void> {
+  const variant = await prisma.variant.findUnique({
+    where: { id: variantId },
+    select: {
+      title: true,
+      productId: true,
+      product: { select: { title: true, seller: { select: { ownerId: true } } } },
+    },
+  });
+  if (!variant) return;
+
+  await createOnce({
+    userId: variant.product.seller.ownerId,
+    type: "LOW_STOCK",
+    title: `${variant.product.title} is running low`,
+    body: `"${variant.product.title}" (${variant.title}) has fallen below your low-stock threshold.`,
+    link: `/sell/products/${variant.productId}`,
+    dedupeKey: `low-stock:${variantId}:${alertCount}`,
+  });
 }
 
 export async function listNotificationsForUser(userId: string, take = 50) {

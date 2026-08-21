@@ -170,6 +170,27 @@ test("updateVariant restocking a variant from zero enqueues a real back-in-stock
   assert.equal(afterRestock.filter((m) => (m.payload as { variantId: string }).variantId === variantId).length, 1);
 });
 
+test("updateVariant sets a real, per-variant lowStockThreshold, and a stock drop below it enqueues a real seller alert", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const sellerId = await makeSeller(`lowstock-${suffix}`);
+  const product = await createProduct(sellerId, { ...baseInput(`lowstock-${suffix}`), onHand: "20" });
+  const owned = await getSellerProduct(sellerId, product.id);
+  const variantId = owned!.variants[0]!.id;
+
+  await updateVariant(sellerId, variantId, { lowStockThreshold: 15 });
+  const refetched = await getSellerProduct(sellerId, product.id);
+  assert.equal(refetched?.variants[0]?.inventory?.lowStockThreshold, 15);
+
+  // 20 available, threshold 15 — still healthy, no alert yet.
+  const before = await prisma.outboxMessage.findMany({ where: { topic: "variant.low_stock" } });
+  assert.equal(before.filter((m) => (m.payload as { variantId: string }).variantId === variantId).length, 0);
+
+  // Correcting onHand down to 10 crosses the real, seller-set threshold.
+  await updateVariant(sellerId, variantId, { onHand: 10 });
+  const after = await prisma.outboxMessage.findMany({ where: { topic: "variant.low_stock" } });
+  assert.equal(after.filter((m) => (m.payload as { variantId: string }).variantId === variantId).length, 1);
+});
+
 test("setProductFeaturedAsAdmin is the only way to mark a product featured — a seller's own updateProduct has no such field", async () => {
   const suffix = Math.random().toString(36).slice(2, 8);
   const sellerId = await makeSeller(`featured-${suffix}`);
@@ -189,6 +210,7 @@ test("setProductFeaturedAsAdmin is the only way to mark a product featured — a
 
 test.after(async () => {
   await prisma.outboxMessage.deleteMany({ where: { topic: "variant.restocked" } });
+  await prisma.outboxMessage.deleteMany({ where: { topic: "variant.low_stock" } });
   await prisma.backInStockRequest.deleteMany({ where: { variant: { product: { seller: { slug: { startsWith: "listing-test-" } } } } } });
   await prisma.variant.deleteMany({ where: { product: { seller: { slug: { startsWith: "listing-test-" } } } } });
   await prisma.product.deleteMany({ where: { seller: { slug: { startsWith: "listing-test-" } } } });

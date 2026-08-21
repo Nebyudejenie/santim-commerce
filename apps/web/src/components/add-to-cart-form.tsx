@@ -12,6 +12,9 @@ export interface VariantOption {
   priceSantim: number;
   options: Record<string, string>;
   available: number;
+  /** Below this, the stock note reads "Only N left" instead of "In stock" —
+   * Inventory.lowStockThreshold, seller-configurable, not a fixed number. */
+  lowStockThreshold: number;
 }
 
 const INITIAL_STATE: CartActionState = { ok: false };
@@ -87,7 +90,7 @@ export function AddToCartForm({
           (selected
             ? selected.available === 0
               ? "stock-note--out"
-              : selected.available <= 5
+              : selected.available <= selected.lowStockThreshold
                 ? "stock-note--low"
                 : "stock-note--ok"
             : "")
@@ -97,7 +100,7 @@ export function AddToCartForm({
         {selected
           ? selected.available === 0
             ? "Out of stock in this size"
-            : selected.available <= 5
+            : selected.available <= selected.lowStockThreshold
               ? `Only ${selected.available} left`
               : "In stock"
           : ""}

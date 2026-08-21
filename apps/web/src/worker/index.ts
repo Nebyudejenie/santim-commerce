@@ -35,6 +35,7 @@ import { purgeExpiredSessions } from "../server/auth/session-store.js";
 import { createLedgerEntriesForOrder } from "../server/orders/settlement-service.js";
 import {
   notifyBackInStock,
+  notifyLowStock,
   notifyOrderLineFulfilled,
   notifyOrderPaid,
   notifyOrderPaymentFailed,
@@ -253,6 +254,9 @@ async function deliver(topic: string, payload: unknown): Promise<void> {
   } else if (topic === "variant.restocked") {
     const { variantId } = payload as { variantId: string };
     await notifyBackInStock(variantId);
+  } else if (topic === "variant.low_stock") {
+    const { variantId, alertCount } = payload as { variantId: string; alertCount: number };
+    await notifyLowStock(variantId, alertCount);
   }
   logger.info("outbox.delivered", { topic, payload });
 }

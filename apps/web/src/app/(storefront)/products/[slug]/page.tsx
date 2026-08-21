@@ -59,6 +59,7 @@ export default async function ProductPage({ params }: Props) {
     priceSantim: v.priceSantim,
     options: v.options as Record<string, string>,
     available: totalAvailable(v.inventory),
+    lowStockThreshold: v.inventory?.lowStockThreshold ?? 5,
   }));
 
   // Optional auth — the PDP itself is public, review-writing eligibility is
