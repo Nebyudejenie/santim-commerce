@@ -191,6 +191,65 @@ test("updateVariant sets a real, per-variant lowStockThreshold, and a stock drop
   assert.equal(after.filter((m) => (m.payload as { variantId: string }).variantId === variantId).length, 1);
 });
 
+test("addVariant accepts a real compareAtBirr higher than the price, and rejects one that isn't", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const sellerId = await makeSeller(`compareat-add-${suffix}`);
+  const product = await createProduct(sellerId, baseInput(`compareat-add-${suffix}`));
+
+  const variant = await addVariant(sellerId, product.id, {
+    title: "On Sale",
+    sku: `CMP-${suffix}`,
+    priceBirr: "80.00",
+    onHand: "5",
+    compareAtBirr: "120.00",
+  });
+  assert.equal(variant.compareAtSantim, 12_000);
+
+  await assert.rejects(
+    () =>
+      addVariant(sellerId, product.id, {
+        title: "Backwards",
+        sku: `CMP2-${suffix}`,
+        priceBirr: "80.00",
+        onHand: "5",
+        compareAtBirr: "50.00", // lower than the real price — backwards, must be rejected
+      }),
+    (err: unknown) => err instanceof ListingError && /higher than the actual price/.test(err.message),
+  );
+});
+
+test("updateVariant sets, then clears, a real compareAtSantim — and validates against whichever price is in effect after the same update", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const sellerId = await makeSeller(`compareat-upd-${suffix}`);
+  const product = await createProduct(sellerId, { ...baseInput(`compareat-upd-${suffix}`), priceBirr: "100.00" });
+  const owned = await getSellerProduct(sellerId, product.id);
+  const variantId = owned!.variants[0]!.id;
+
+  await updateVariant(sellerId, variantId, { compareAtBirr: "150.00" });
+  let refetched = await getSellerProduct(sellerId, product.id);
+  assert.equal(refetched?.variants[0]?.compareAtSantim, 15_000);
+
+  // A blank string clears it back to null, not a no-op.
+  await updateVariant(sellerId, variantId, { compareAtBirr: "" });
+  refetched = await getSellerProduct(sellerId, product.id);
+  assert.equal(refetched?.variants[0]?.compareAtSantim, null);
+
+  // A compare-at that's only invalid against the OLD price (100) but would
+  // be valid against a NEW price submitted in the SAME update (60) must be
+  // validated against the new one — the price that will actually be in
+  // effect once this update lands.
+  await updateVariant(sellerId, variantId, { priceBirr: "60.00", compareAtBirr: "80.00" });
+  refetched = await getSellerProduct(sellerId, product.id);
+  assert.equal(refetched?.variants[0]?.priceSantim, 6_000);
+  assert.equal(refetched?.variants[0]?.compareAtSantim, 8_000);
+
+  // And rejected when it's backwards relative to that same new price.
+  await assert.rejects(
+    () => updateVariant(sellerId, variantId, { priceBirr: "60.00", compareAtBirr: "40.00" }),
+    (err: unknown) => err instanceof ListingError && /higher than the actual price/.test(err.message),
+  );
+});
+
 test("setProductFeaturedAsAdmin is the only way to mark a product featured — a seller's own updateProduct has no such field", async () => {
   const suffix = Math.random().toString(36).slice(2, 8);
   const sellerId = await makeSeller(`featured-${suffix}`);

@@ -50,6 +50,13 @@ function parseBirr(raw: string, field: string): number {
   }
 }
 
+/** A blank/missing input means "no compare-at price", not an error — this
+ * field is optional, unlike the real price. */
+function parseOptionalBirr(raw: string | undefined, field: string): number | null {
+  if (!raw || !raw.trim()) return null;
+  return parseBirr(raw, field);
+}
+
 export interface CreateProductInput {
   readonly title: string;
   readonly subtitle?: string;
@@ -197,6 +204,7 @@ export interface AddVariantInput {
   readonly sku: string;
   readonly priceBirr: string;
   readonly onHand: string;
+  readonly compareAtBirr?: string;
 }
 
 export async function addVariant(sellerId: string, productId: string, input: AddVariantInput) {
@@ -209,10 +217,14 @@ export async function addVariant(sellerId: string, productId: string, input: Add
   if (!Number.isInteger(onHand) || onHand < 0) {
     throw new ListingError("Stock quantity must be a non-negative whole number.");
   }
+  const compareAtSantim = parseOptionalBirr(input.compareAtBirr, "Compare-at price");
+  if (compareAtSantim !== null && compareAtSantim <= priceSantim) {
+    throw new ListingError("Compare-at price must be higher than the actual price.");
+  }
 
   try {
     const variant = await prisma.variant.create({
-      data: { productId, sku, title: input.title.trim() || "Default", priceSantim },
+      data: { productId, sku, title: input.title.trim() || "Default", priceSantim, compareAtSantim },
     });
     await prisma.inventory.create({ data: { variantId: variant.id, onHand, reserved: 0 } });
     logger.info("listing.variant_added", { productId, sellerId, variantId: variant.id });
@@ -230,6 +242,7 @@ export interface UpdateVariantInput {
   readonly onHand?: number;
   readonly active?: boolean;
   readonly lowStockThreshold?: number;
+  readonly compareAtBirr?: string;
 }
 
 /** Ownership is checked via the variant's OWN product, never trusted from the caller. */
@@ -239,9 +252,21 @@ export async function updateVariant(sellerId: string, variantId: string, input: 
     throw new ListingError("Variant not found.");
   }
 
-  const data: Record<string, number | boolean> = {};
+  const data: Record<string, number | boolean | null> = {};
   if (input.priceBirr !== undefined) data.priceSantim = parseBirr(input.priceBirr, "Price");
   if (input.active !== undefined) data.active = input.active;
+  if (input.compareAtBirr !== undefined) {
+    const compareAtSantim = parseOptionalBirr(input.compareAtBirr, "Compare-at price");
+    // Validated against whichever price will actually be in effect after
+    // this same update — a seller lowering the price AND setting a
+    // compare-at price in one submission must be checked against the NEW
+    // price, not the stale one still on the row.
+    const effectivePriceSantim = typeof data.priceSantim === "number" ? data.priceSantim : variant.priceSantim;
+    if (compareAtSantim !== null && compareAtSantim <= effectivePriceSantim) {
+      throw new ListingError("Compare-at price must be higher than the actual price.");
+    }
+    data.compareAtSantim = compareAtSantim;
+  }
 
   const updated = await prisma.variant.update({ where: { id: variantId }, data });
 

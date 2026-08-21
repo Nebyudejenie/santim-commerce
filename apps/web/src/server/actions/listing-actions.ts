@@ -136,6 +136,7 @@ export async function addVariantAction(
       sku: String(formData.get("sku") ?? ""),
       priceBirr: String(formData.get("priceBirr") ?? ""),
       onHand: String(formData.get("onHand") ?? ""),
+      compareAtBirr: String(formData.get("compareAtBirr") ?? ""),
     });
   } catch (error) {
     if (error instanceof ListingError) return { ok: false, message: error.message };
@@ -164,6 +165,7 @@ export async function updateVariantAction(
       onHand: Number(formData.get("onHand") ?? ""),
       active: activeRaw === null ? undefined : activeRaw === "on",
       lowStockThreshold: Number(formData.get("lowStockThreshold") ?? ""),
+      compareAtBirr: String(formData.get("compareAtBirr") ?? ""),
     });
   } catch (error) {
     if (error instanceof ListingError) return { ok: false, message: error.message };

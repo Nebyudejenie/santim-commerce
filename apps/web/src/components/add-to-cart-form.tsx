@@ -10,6 +10,9 @@ export interface VariantOption {
   id: string;
   title: string;
   priceSantim: number;
+  /** Struck-through "was" price, shown next to priceSantim when set and
+   * genuinely higher — Variant.compareAtSantim, seller-configurable. */
+  compareAtSantim: number | null;
   options: Record<string, string>;
   available: number;
   /** Below this, the stock note reads "Only N left" instead of "In stock" —
@@ -60,6 +63,9 @@ export function AddToCartForm({
 
       <p className="pdp__price">
         {selected ? <Money santim={selected.priceSantim} /> : "—"}
+        {selected && selected.compareAtSantim !== null && selected.compareAtSantim > selected.priceSantim && (
+          <Money santim={selected.compareAtSantim} className="pdp__compare-at" />
+        )}
       </p>
 
       <div role="group" aria-labelledby="option-label">

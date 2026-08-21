@@ -12,6 +12,7 @@ interface VariantRowProps {
     title: string;
     sku: string;
     priceSantim: number;
+    compareAtSantim: number | null;
     active: boolean;
     inventory: { onHand: number; lowStockThreshold: number } | null;
   };
@@ -23,7 +24,7 @@ export function VariantRow({ productId, variant }: VariantRowProps) {
   return (
     <form
       action={formAction}
-      style={{ display: "grid", gridTemplateColumns: "1fr 100px 100px 110px 90px auto", gap: "var(--space-3)", alignItems: "center", padding: "var(--space-3) 0", borderBottom: "1px solid var(--border)" }}
+      style={{ display: "grid", gridTemplateColumns: "1fr 100px 100px 100px 110px 90px auto", gap: "var(--space-3)", alignItems: "center", padding: "var(--space-3) 0", borderBottom: "1px solid var(--border)" }}
     >
       <input type="hidden" name="variantId" value={variant.id} />
       <input type="hidden" name="productId" value={productId} />
@@ -38,6 +39,16 @@ export function VariantRow({ productId, variant }: VariantRowProps) {
         min="0.01"
         defaultValue={(variant.priceSantim / 100).toFixed(2)}
         aria-label="Price in ETB"
+      />
+      <input
+        name="compareAtBirr"
+        type="number"
+        step="0.01"
+        min="0.01"
+        defaultValue={variant.compareAtSantim ? (variant.compareAtSantim / 100).toFixed(2) : ""}
+        aria-label="Compare-at price in ETB"
+        placeholder="Was price"
+        title="Shown struck through next to the real price. Leave blank for no sale pricing."
       />
       <input
         name="onHand"

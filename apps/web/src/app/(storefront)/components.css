@@ -557,6 +557,7 @@
 .pdp__title { font-size: var(--text-3xl); margin-bottom: var(--space-2); }
 .pdp__subtitle { color: var(--fg-muted); margin-bottom: var(--space-4); }
 .pdp__price { font-size: var(--text-xl); font-weight: 600; margin-bottom: var(--space-6); }
+.pdp__compare-at { margin-left: var(--space-2); font-size: var(--text-lg); font-weight: 400; color: var(--fg-muted); text-decoration: line-through; }
 
 .wishlist-button {
   display: inline-flex;

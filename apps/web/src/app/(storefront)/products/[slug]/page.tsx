@@ -57,6 +57,7 @@ export default async function ProductPage({ params }: Props) {
     id: v.id,
     title: v.title,
     priceSantim: v.priceSantim,
+    compareAtSantim: v.compareAtSantim,
     options: v.options as Record<string, string>,
     available: totalAvailable(v.inventory),
     lowStockThreshold: v.inventory?.lowStockThreshold ?? 5,

@@ -1280,12 +1280,59 @@ proved out this session — do not relax these just because the scope grew)
       `notifyLowStock`'s own 2 integration tests, calling the real
       function against a real Postgres.
 
-### Current status / where to resume (2026-08-21, commit `8e2cea0`)
+- [x] **Compare-at ("sale") pricing, plus a systematic sweep for more dead
+      fields** — after finding THREE separate "field exists, nothing
+      wired" bugs this session (`Seller.logoUrl`, `Order.customerNote`,
+      `Inventory.lowStockThreshold`), audited systematically rather than
+      waiting to stumble onto more: extracted every model field from
+      schema.prisma and grepped its real usage count across `src/`.
+      `Variant.compareAtSantim` — a real, pre-existing field with its own
+      comment ("Original price for strike-through display") — came back
+      at ZERO usages anywhere outside the schema itself. The fourth
+      instance of this exact bug class this session.
+
+      Fixed both halves, the same shape as the `lowStockThreshold` fix:
+      write side (`addVariant`/`updateVariant` now accept a real,
+      optional `compareAtBirr`, validated to be genuinely higher than the
+      actual price — rejects a backwards "sale" that would show a
+      struck-through price LOWER than what's actually charged, both at
+      creation and when a price change and a compare-at change land in
+      the same submission, checked against whichever price will actually
+      be in effect afterward) and read side (the product page now shows
+      a real struck-through "was" price next to the current one, only
+      when set and genuinely higher). Deliberately scoped to the PDP,
+      not the grid `ProductCard` — that would need deciding which
+      variant's compare-at to show for a "from" price aggregated across
+      several, a real added complexity kept out of this pass.
+
+      Also swept the audit's other findings for triage: `metaTitle`/
+      `metaDescription` are genuinely read (product page's own
+      `generateMetadata`) but have no write path either — a smaller,
+      real gap noted for a future pass, not fixed here to keep this one
+      focused. `User.emailVerifiedAt` is confirmed dead but correctly
+      OUT of scope, same reasoning as self-service password reset:
+      verifying an email's realness is the one thing an admin-assisted
+      workaround structurally cannot substitute for.
+
+      2 new integration tests (accepts a real higher compare-at and
+      rejects a backwards one at creation; sets then clears one via a
+      blank submission, and validates against the correct in-effect
+      price when price and compare-at change together). Full regression
+      suite (72 unit, 192 integration) and a production build pass.
+      Verified end-to-end over real HTTP: a real seeded 80/120 ETB
+      price/compare-at pair rendering the correct strike-through; the
+      seller's product-edit page showing the real current value; a real
+      update to 150 ETB via Next's actual Server Action protocol
+      immediately reflected on the customer-facing page; and a real
+      backwards (50 ETB compare-at against an 80 ETB price) submission
+      correctly rejected with the database confirmed unchanged.
+
+### Current status / where to resume (2026-08-21, commit `PENDING`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
 watched to a real, uncontested completion, per this session's own working
-discipline above. Full regression suite (typecheck, lint, 72 unit, 190
+discipline above. Full regression suite (typecheck, lint, 72 unit, 192
 integration) and a production build all pass cleanly as of this commit.
 
 Deliberately still out of scope, not oversights — both genuinely blocked
@@ -1316,10 +1363,14 @@ import/export, back-in-stock notifications, admin payout recording,
 customer order cancellation, guest order lookup, admin-assisted password
 reset, self-service password change, admin customer suspension, seller
 self-service storefront settings, order delivery notes, seller low-stock
-alerts, and
+alerts, compare-at pricing, and
 more, each confirmed genuinely absent before being built). No further
 specific candidate is
-currently queued — gift cards / store credit was considered and
+currently queued — a systematic dead-field audit found one more small
+real gap not yet fixed (`Product.metaTitle`/`metaDescription` have no
+write path) and one confirmed-but-out-of-scope one
+(`User.emailVerifiedAt`) — see the compare-at entry above. Gift cards /
+store credit was considered and
 deliberately not pursued: unlike everything built this session, issuing
 one would need a real payment-collection step, the same real-gateway-
 confirmation complexity already blocking seller payouts, not a clean fit
