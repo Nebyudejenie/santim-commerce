@@ -23,6 +23,7 @@
 
 import { revalidatePath } from "next/cache";
 import { settlePayment } from "../payments/payment-service.js";
+import { setProductFeaturedAsAdmin } from "../catalogue/listing-service.js";
 import { logger } from "../observability/logger.js";
 import { requireRole } from "../auth/guard.js";
 
@@ -57,4 +58,25 @@ export async function resettlePaymentAction(
     logger.error("admin.manual_resettle_failed", { merchantTxnId, error: (error as Error).message });
     return { ok: false, message: (error as Error).message };
   }
+}
+
+export async function toggleProductFeaturedAction(
+  _prev: AdminActionState,
+  formData: FormData,
+): Promise<AdminActionState> {
+  await requireRole("STAFF");
+
+  const productId = String(formData.get("productId") ?? "");
+  const featured = formData.get("featured") === "true";
+
+  try {
+    await setProductFeaturedAsAdmin(productId, featured);
+  } catch (error) {
+    logger.error("admin.toggle_featured_failed", { productId, error: (error as Error).message });
+    return { ok: false, message: "Something went wrong. Please try again." };
+  }
+
+  revalidatePath("/admin/products");
+  revalidatePath("/");
+  return { ok: true, message: featured ? "Marked featured." : "Removed from featured." };
 }

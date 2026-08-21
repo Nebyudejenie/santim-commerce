@@ -196,4 +196,28 @@ export async function getBusinessMetrics(): Promise<BusinessMetrics> {
   };
 }
 
+/**
+ * Cross-seller product visibility for admin — deliberately not
+ * catalogue-service.ts's VISIBLE_PRODUCT_WHERE-filtered listAllProducts:
+ * admin needs to see DRAFT/ARCHIVED listings and products from
+ * PENDING/SUSPENDED sellers too, the same reasoning admin-queries.ts's
+ * other functions expose fields the storefront never would.
+ */
+export async function listAllProductsForAdmin(search?: string, take = 100) {
+  return prisma.product.findMany({
+    where: search ? { title: { contains: search, mode: "insensitive" } } : undefined,
+    orderBy: { updatedAt: "desc" },
+    take,
+    select: {
+      id: true,
+      title: true,
+      slug: true,
+      status: true,
+      featured: true,
+      updatedAt: true,
+      seller: { select: { storeName: true, slug: true } },
+    },
+  });
+}
+
 export type { OrderStatus, PaymentStatus };

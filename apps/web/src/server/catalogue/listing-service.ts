@@ -275,3 +275,17 @@ export async function getSellerProduct(sellerId: string, productId: string) {
   if (!product || product.sellerId !== sellerId) return null;
   return product;
 }
+
+/**
+ * Admin-only editorial curation — deliberately NOT something a seller can
+ * set on their own listing (see `updateProduct` above, which has no
+ * `featured` field at all): letting sellers self-promote onto the
+ * homepage would turn "featured" into a race, not a real editorial
+ * decision. `Product.featured` has existed in the schema and been read by
+ * `listFeaturedProducts` since an earlier phase, but nothing anywhere
+ * could ever set it to true outside seed data until this function.
+ */
+export async function setProductFeaturedAsAdmin(productId: string, featured: boolean): Promise<void> {
+  await prisma.product.update({ where: { id: productId }, data: { featured } });
+  logger.info("listing.featured_changed", { productId, featured });
+}

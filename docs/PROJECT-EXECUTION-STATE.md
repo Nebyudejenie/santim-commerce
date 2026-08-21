@@ -580,6 +580,27 @@ rather than inventing busywork.
       "Sign in to ask a question" link instead of the interactive form;
       the seller console's queue shows only the real unanswered question,
       correctly excluding the already-answered one.
+- [x] **Admin featured-product curation** — `Product.featured` has existed
+      in the schema and been read by `listFeaturedProducts` (the
+      homepage's "Featured" section) since an earlier phase, but confirmed
+      nothing anywhere could ever set it to true outside seed data — no
+      admin UI, no seller UI. Deliberately kept OFF the seller's own
+      `updateProduct` (no `featured` field there at all): letting sellers
+      self-promote onto the homepage would turn "featured" into a race,
+      not a real editorial decision, so this is admin-only by design, not
+      oversight. New `setProductFeaturedAsAdmin` (listing-service.ts) and
+      `listAllProductsForAdmin` (admin-queries.ts, deliberately NOT
+      catalogue-service.ts's VISIBLE_PRODUCT_WHERE-filtered
+      `listAllProducts` — admin needs to see DRAFT/ARCHIVED listings and
+      products from PENDING/SUSPENDED sellers too, verified directly: a
+      DRAFT product from a SUSPENDED seller shows up for admin even though
+      the storefront would never show it). New `/admin/products` page
+      (search by title, a real cross-seller catalog view admin didn't have
+      at all before this). 2 new integration tests. Verified end-to-end
+      over real HTTP: the real product and its Feature button render on
+      `/admin/products`; search correctly filters to a match and correctly
+      shows the empty state for a non-match; a guest is redirected to
+      `/admin/login`.
 
 ### Working discipline for this mandate (carried over from what already
 proved out this session — do not relax these just because the scope grew)

@@ -17,6 +17,7 @@ import {
   getSellerProduct,
   ListingError,
   listSellerProducts,
+  setProductFeaturedAsAdmin,
   setProductStatus,
   updateProduct,
   updateVariant,
@@ -145,6 +146,23 @@ test("updateVariant's onHand is an absolute set, and listSellerProducts only ret
   const listA = await listSellerProducts(sellerA);
   assert.equal(listA.length, 1);
   assert.equal(listA[0]?.id, productA.id);
+});
+
+test("setProductFeaturedAsAdmin is the only way to mark a product featured — a seller's own updateProduct has no such field", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const sellerId = await makeSeller(`featured-${suffix}`);
+  const product = await createProduct(sellerId, baseInput(`featured-${suffix}`));
+
+  const before = await prisma.product.findUniqueOrThrow({ where: { id: product.id } });
+  assert.equal(before.featured, false, "featured must default to false, never true from seed/creation");
+
+  await setProductFeaturedAsAdmin(product.id, true);
+  const afterFeatured = await prisma.product.findUniqueOrThrow({ where: { id: product.id } });
+  assert.equal(afterFeatured.featured, true);
+
+  await setProductFeaturedAsAdmin(product.id, false);
+  const afterUnfeatured = await prisma.product.findUniqueOrThrow({ where: { id: product.id } });
+  assert.equal(afterUnfeatured.featured, false);
 });
 
 test.after(async () => {

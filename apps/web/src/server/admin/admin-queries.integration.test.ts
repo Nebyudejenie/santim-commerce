@@ -9,7 +9,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { PrismaClient } from "@prisma/client";
-import { getBusinessMetrics } from "./admin-queries.ts";
+import { getBusinessMetrics, listAllProductsForAdmin } from "./admin-queries.ts";
 
 const prisma = new PrismaClient();
 
@@ -161,10 +161,25 @@ test("active seller and pending application counts reflect real seller rows", as
   assert.ok(metrics.pendingSellerApplications >= 1);
 });
 
+test("listAllProductsForAdmin sees a DRAFT product a suspended seller's storefront would never show", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const sellerId = await makeSeller(suffix);
+  await prisma.product.create({
+    data: { sellerId, slug: `admin-metrics-product-${suffix}`, title: `Admin Metrics Draft Item ${suffix}`, description: "d", status: "DRAFT" },
+  });
+  await prisma.seller.update({ where: { id: sellerId }, data: { status: "SUSPENDED" } });
+
+  const all = await listAllProductsForAdmin(`Admin Metrics Draft Item ${suffix}`);
+  assert.equal(all.length, 1, "admin must see a DRAFT product from a SUSPENDED seller — the storefront never would");
+  assert.equal(all[0]!.status, "DRAFT");
+  assert.equal(all[0]!.featured, false);
+});
+
 test.after(async () => {
   await prisma.sellerLedgerEntry.deleteMany({ where: { order: { orderNumber: { startsWith: "SC-ADMETRICS-" } } } });
   await prisma.orderLine.deleteMany({ where: { order: { orderNumber: { startsWith: "SC-ADMETRICS-" } } } });
   await prisma.order.deleteMany({ where: { orderNumber: { startsWith: "SC-ADMETRICS-" } } });
+  await prisma.product.deleteMany({ where: { slug: { startsWith: "admin-metrics-product-" } } });
   await prisma.seller.deleteMany({ where: { slug: { startsWith: "admin-metrics-seller-" } } });
   await prisma.user.deleteMany({ where: { email: { startsWith: "admin-metrics-" } } });
   await prisma.$disconnect();
