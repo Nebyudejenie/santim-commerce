@@ -1090,7 +1090,7 @@ proved out this session — do not relax these just because the scope grew)
       Full regression suite (72 unit, 178 integration) and a production
       build both pass.
 
-### Current status / where to resume (2026-08-21, commit `PENDING`)
+### Current status / where to resume (2026-08-21, commit `2ca4cde`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
