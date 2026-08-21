@@ -185,3 +185,66 @@ export async function listSellerLedgerEntries(sellerId: string, take = 100) {
     include: { order: { select: { orderNumber: true } } },
   });
 }
+
+const SELLER_METRICS_WINDOW_DAYS = 30;
+
+export interface SellerTopProduct {
+  readonly productTitle: string;
+  readonly unitsSold: number;
+  readonly revenueSantim: number;
+}
+
+export interface SellerBusinessMetrics {
+  readonly windowDays: number;
+  readonly ordersCount: number;
+  readonly grossSalesSantim: number;
+  readonly topProducts: readonly SellerTopProduct[];
+}
+
+/**
+ * A single seller's own version of admin-queries.ts's getBusinessMetrics —
+ * same "how is business actually going" question, scoped down to one
+ * store instead of the whole marketplace. Deliberately groups top
+ * products by the SNAPSHOTTED `productTitle` on OrderLine, not a live
+ * Product join: this schema's own stated philosophy (OrderLine's module
+ * comment) is "a historical record, not a view" — a renamed or deleted
+ * product must never silently break or misattribute past sales figures.
+ */
+export async function getSellerBusinessMetrics(sellerId: string): Promise<SellerBusinessMetrics> {
+  const windowStart = new Date(Date.now() - SELLER_METRICS_WINDOW_DAYS * 24 * 60 * 60_000);
+
+  const lines = await prisma.orderLine.findMany({
+    where: {
+      sellerId,
+      // paidAt, not the line's own createdAt (order-placement time) — same
+      // "when did the sale actually happen" semantic admin-queries.ts's
+      // getBusinessMetrics uses for its GMV window, for the same reason: a
+      // delayed or resumed payment can leave createdAt meaningfully earlier
+      // than when the sale was actually real.
+      order: { status: { in: ["PAID", "REFUNDED", "PARTIALLY_REFUNDED"] }, paidAt: { gte: windowStart } },
+    },
+    select: { orderId: true, productTitle: true, quantity: true, lineTotalSantim: true },
+  });
+
+  const distinctOrderIds = new Set(lines.map((l) => l.orderId));
+  const grossSalesSantim = lines.reduce((sum, l) => sum + l.lineTotalSantim, 0);
+
+  const byProduct = new Map<string, { unitsSold: number; revenueSantim: number }>();
+  for (const line of lines) {
+    const existing = byProduct.get(line.productTitle) ?? { unitsSold: 0, revenueSantim: 0 };
+    existing.unitsSold += line.quantity;
+    existing.revenueSantim += line.lineTotalSantim;
+    byProduct.set(line.productTitle, existing);
+  }
+  const topProducts = [...byProduct.entries()]
+    .map(([productTitle, v]) => ({ productTitle, ...v }))
+    .sort((a, b) => b.revenueSantim - a.revenueSantim)
+    .slice(0, 5);
+
+  return {
+    windowDays: SELLER_METRICS_WINDOW_DAYS,
+    ordersCount: distinctOrderIds.size,
+    grossSalesSantim,
+    topProducts,
+  };
+}

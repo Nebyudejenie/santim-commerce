@@ -632,6 +632,37 @@ rather than inventing busywork.
       exercising the real PDP write path) and confirming the homepage
       correctly showed the second-viewed product first; a guest sees no
       such section at all.
+- [x] **Seller business-metrics dashboard** — `/sell/earnings` had only a
+      flat balance (payable/settled/lifetime) and a flat ledger list — no
+      trends, no "how's business going" view, mirroring the exact gap
+      admin's own dashboard had before `getBusinessMetrics()` earlier this
+      session. New `getSellerBusinessMetrics(sellerId)`
+      (settlement-service.ts) — a single seller's own version of the same
+      question, scoped down to one store: real orders count, gross sales,
+      and top products, over the last 30 days.
+
+      Deliberately groups top products by the SNAPSHOTTED `productTitle`
+      on OrderLine, not a live Product join — OrderLine's own module
+      comment already states the philosophy this follows: "a historical
+      record, not a view." A renamed or deleted product must never
+      silently break or misattribute past sales figures. Filters by
+      `Order.paidAt`, not the line's own `createdAt` (order-placement
+      time) — the same "when did the sale actually happen" semantic
+      admin-queries.ts's `getBusinessMetrics` already uses for its GMV
+      window, for the same reason: a delayed or resumed payment can leave
+      `createdAt` meaningfully earlier than when the sale was actually
+      real. This was caught and fixed before the tests were even written,
+      by checking the admin version's own established semantic rather
+      than picking a plausible-looking field.
+
+      Unlike admin's marketplace-wide aggregate, this metric is scoped to
+      one specific seller id — genuinely no cross-file interference risk
+      even under `node --test`'s concurrent file execution, so its tests
+      use exact-equality assertions rather than admin-queries.ts's
+      threshold-bound workaround. 2 new integration tests. Verified
+      end-to-end over real HTTP: real order count, gross sales, and a real
+      top-selling product all render correctly on `/sell/earnings`,
+      matching the seeded figures exactly.
 
 ### Working discipline for this mandate (carried over from what already
 proved out this session — do not relax these just because the scope grew)

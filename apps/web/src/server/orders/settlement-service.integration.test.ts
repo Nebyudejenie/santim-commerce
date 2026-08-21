@@ -19,7 +19,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { PrismaClient } from "@prisma/client";
-import { createLedgerEntriesForOrder, getSellerBalance, listSellerLedgerEntries } from "./settlement-service.ts";
+import { createLedgerEntriesForOrder, getSellerBalance, getSellerBusinessMetrics, listSellerLedgerEntries } from "./settlement-service.ts";
 
 const prisma = new PrismaClient();
 
@@ -256,6 +256,96 @@ test("an admin/platform-wide coupon redemption creates NO COUPON_DISCOUNT entry 
   assert.equal(entries.length, 2, "only the normal SALE+COMMISSION — an admin coupon must never touch the seller's ledger");
   const balance = await getSellerBalance(sellerId);
   assert.equal(balance.payableSantim, 7_200, "8000 - 10% commission (800), completely unaffected by the platform-funded discount");
+});
+
+// getSellerBusinessMetrics is scoped to a single, freshly created test
+// seller per test (a real, unique sellerId) — unlike admin-queries.ts's
+// getBusinessMetrics, which aggregates across ALL sellers globally, there
+// is no cross-file interference risk here even though node --test runs
+// integration test files concurrently by default: no other test file can
+// possibly attribute a sale to THIS seller's randomly generated id.
+// Exact-equality assertions are safe.
+test("getSellerBusinessMetrics computes real orders/gross-sales/top-products for one seller, within the window only", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const sellerId = await makeSeller(`metrics-${suffix}`, 1000);
+
+  await prisma.order.create({
+    data: {
+      orderNumber: `SC-LEDGERMETRICS-1-${suffix}`.toUpperCase(),
+      email: "buyer@example.et",
+      phone: "+251900000000",
+      status: "PAID",
+      subtotalSantim: 10_000,
+      totalSantim: 10_000,
+      paidAt: new Date(),
+      lines: {
+        create: [
+          { sellerId, sku: `M1-${suffix}`, productTitle: "Popular Item", variantTitle: "Default", unitPriceSantim: 5_000, quantity: 2, lineTotalSantim: 10_000 },
+        ],
+      },
+    },
+  });
+  await prisma.order.create({
+    data: {
+      orderNumber: `SC-LEDGERMETRICS-2-${suffix}`.toUpperCase(),
+      email: "buyer@example.et",
+      phone: "+251900000000",
+      status: "PAID",
+      subtotalSantim: 3_000,
+      totalSantim: 3_000,
+      paidAt: new Date(),
+      lines: {
+        create: [
+          { sellerId, sku: `M2-${suffix}`, productTitle: "Less Popular Item", variantTitle: "Default", unitPriceSantim: 3_000, quantity: 1, lineTotalSantim: 3_000 },
+        ],
+      },
+    },
+  });
+  // An order outside the 30-day window — paidAt is backdated 60 days, so
+  // it must not count toward anything.
+  await prisma.order.create({
+    data: {
+      orderNumber: `SC-LEDGERMETRICS-OLD-${suffix}`.toUpperCase(),
+      email: "buyer@example.et",
+      phone: "+251900000000",
+      status: "PAID",
+      subtotalSantim: 99_999,
+      totalSantim: 99_999,
+      paidAt: new Date(Date.now() - 60 * 24 * 60 * 60_000),
+      lines: {
+        create: [
+          {
+            sellerId,
+            sku: `MOLD-${suffix}`,
+            productTitle: "Old Item",
+            variantTitle: "Default",
+            unitPriceSantim: 99_999,
+            quantity: 1,
+            lineTotalSantim: 99_999,
+          },
+        ],
+      },
+    },
+  });
+
+  const metrics = await getSellerBusinessMetrics(sellerId);
+  assert.equal(metrics.ordersCount, 2, "only the two real in-window orders — the 60-day-old one must be excluded");
+  assert.equal(metrics.grossSalesSantim, 13_000, "10000 + 3000, the 99999 old order must not be included");
+  assert.equal(metrics.topProducts.length, 2);
+  assert.equal(metrics.topProducts[0]!.productTitle, "Popular Item", "higher revenue must rank first");
+  assert.equal(metrics.topProducts[0]!.unitsSold, 2);
+  assert.equal(metrics.topProducts[0]!.revenueSantim, 10_000);
+  assert.equal(metrics.topProducts[1]!.productTitle, "Less Popular Item");
+});
+
+test("getSellerBusinessMetrics for a seller with no real sales returns real zeros, not an error", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const sellerId = await makeSeller(`metrics-empty-${suffix}`, 1000);
+
+  const metrics = await getSellerBusinessMetrics(sellerId);
+  assert.equal(metrics.ordersCount, 0);
+  assert.equal(metrics.grossSalesSantim, 0);
+  assert.equal(metrics.topProducts.length, 0);
 });
 
 test.after(async () => {

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { requireApprovedSellerForPage } from "@/server/auth/guard";
-import { getSellerBalance, listSellerLedgerEntries } from "@/server/orders/settlement-service";
+import { getSellerBalance, getSellerBusinessMetrics, listSellerLedgerEntries } from "@/server/orders/settlement-service";
 import { Money } from "@/components/money";
 
 export const metadata: Metadata = { title: "Your earnings" };
@@ -17,9 +17,10 @@ const TYPE_LABEL: Record<string, string> = {
 
 export default async function SellerEarningsPage() {
   const seller = await requireApprovedSellerForPage();
-  const [balance, entries] = await Promise.all([
+  const [balance, entries, metrics] = await Promise.all([
     getSellerBalance(seller.id),
     listSellerLedgerEntries(seller.id),
+    getSellerBusinessMetrics(seller.id),
   ]);
 
   return (
@@ -27,6 +28,40 @@ export default async function SellerEarningsPage() {
       <div className="section-head">
         <h2>{seller.storeName} — earnings</h2>
       </div>
+
+      <h3 style={{ fontSize: "var(--text-sm)", textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--fg-faint)", marginBottom: "var(--space-4)" }}>
+        Business, last {metrics.windowDays} days
+      </h3>
+      <div className="stat-grid" style={{ marginBottom: "var(--space-6)" }}>
+        <div className="stat-tile">
+          <p className="stat-tile__label">Orders</p>
+          <p className="stat-tile__value">{metrics.ordersCount}</p>
+        </div>
+        <div className="stat-tile">
+          <p className="stat-tile__label">Gross sales</p>
+          <p className="stat-tile__value"><Money santim={metrics.grossSalesSantim} /></p>
+        </div>
+      </div>
+
+      {metrics.topProducts.length > 0 && (
+        <div className="detail-card" style={{ marginBottom: "var(--space-7)" }}>
+          <h3>Top products</h3>
+          <table className="admin-table">
+            <thead>
+              <tr><th>Product</th><th>Units</th><th>Revenue</th></tr>
+            </thead>
+            <tbody>
+              {metrics.topProducts.map((p) => (
+                <tr key={p.productTitle}>
+                  <td>{p.productTitle}</td>
+                  <td>{p.unitsSold}</td>
+                  <td><Money santim={p.revenueSantim} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       <aside className="summary-card" style={{ marginBottom: "var(--space-7)" }}>
         <div className="summary-row">
