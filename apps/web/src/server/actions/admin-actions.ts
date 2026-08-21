@@ -26,6 +26,7 @@ import { settlePayment } from "../payments/payment-service.js";
 import { setProductFeaturedAsAdmin } from "../catalogue/listing-service.js";
 import { recordSellerPayout, SettlementError } from "../orders/settlement-service.js";
 import { issuePasswordResetToken, PasswordResetError } from "../auth/password-reset-service.js";
+import { suspendUser, reinstateUser, AuthError } from "../auth/auth-service.js";
 import { logger } from "../observability/logger.js";
 import { requireRole } from "../auth/guard.js";
 
@@ -144,6 +145,56 @@ export async function issuePasswordResetTokenAction(
   } catch (error) {
     if (error instanceof PasswordResetError) return { ok: false, message: error.message };
     logger.error("admin.password_reset_issue_failed", { userId, error: (error as Error).message });
+    return { ok: false, message: "Something went wrong. Please try again." };
+  }
+}
+
+/**
+ * Trust & safety — see auth-service.ts's `suspendUser` for the real scope
+ * (CUSTOMER accounts only) and why this also kills every existing session,
+ * not just future logins.
+ */
+export async function suspendUserAction(
+  _prev: AdminActionState,
+  formData: FormData,
+): Promise<AdminActionState> {
+  const admin = await requireRole("STAFF");
+
+  const userId = String(formData.get("userId") ?? "");
+  const reason = String(formData.get("reason") ?? "");
+  if (!userId) return { ok: false, message: "Missing user." };
+
+  try {
+    await suspendUser(userId, reason, admin.email);
+    revalidatePath("/admin/users");
+    revalidatePath(`/admin/users/${userId}`);
+    logger.warn("admin.user_suspended", { userId, suspendedByAdmin: admin.email });
+    return { ok: true, message: "Account suspended." };
+  } catch (error) {
+    if (error instanceof AuthError) return { ok: false, message: error.message };
+    logger.error("admin.user_suspend_failed", { userId, error: (error as Error).message });
+    return { ok: false, message: "Something went wrong. Please try again." };
+  }
+}
+
+export async function reinstateUserAction(
+  _prev: AdminActionState,
+  formData: FormData,
+): Promise<AdminActionState> {
+  await requireRole("STAFF");
+
+  const userId = String(formData.get("userId") ?? "");
+  if (!userId) return { ok: false, message: "Missing user." };
+
+  try {
+    await reinstateUser(userId);
+    revalidatePath("/admin/users");
+    revalidatePath(`/admin/users/${userId}`);
+    logger.info("admin.user_reinstated", { userId });
+    return { ok: true, message: "Account reinstated." };
+  } catch (error) {
+    if (error instanceof AuthError) return { ok: false, message: error.message };
+    logger.error("admin.user_reinstate_failed", { userId, error: (error as Error).message });
     return { ok: false, message: "Something went wrong. Please try again." };
   }
 }

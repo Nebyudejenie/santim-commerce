@@ -85,6 +85,16 @@ export async function login(input: LoginInput): Promise<AuthenticatedUser> {
     throw new AuthError("Incorrect email or password.");
   }
 
+  // Checked only AFTER the password has already been proven correct — the
+  // same reasoning adminLoginAction's own "you don't have admin access"
+  // message already relies on in this codebase: revealing suspension here
+  // isn't an enumeration risk, since whoever just typed the right password
+  // already knows this account exists.
+  if (user.suspendedAt) {
+    logger.warn("auth.login_blocked_suspended", { userId: user.id });
+    throw new AuthError("This account has been suspended. Contact support for help.");
+  }
+
   if (needsRehash(user.passwordHash)) {
     const rehashed = await hashPassword(input.password);
     await prisma.user.update({ where: { id: user.id }, data: { passwordHash: rehashed } });
@@ -145,6 +155,43 @@ const DUMMY_HASH =
 
 function isUniqueViolation(error: unknown): boolean {
   return typeof error === "object" && error !== null && (error as { code?: string }).code === "P2002";
+}
+
+/**
+ * Trust & safety enforcement — see schema.prisma's own comment on
+ * `User.suspendedAt` for why this is a separate, independent concern from
+ * Seller.status's existing suspend/reinstate. Scoped to CUSTOMER-role
+ * accounts only: suspending a STAFF/ADMIN account through this same,
+ * simple admin-facing flow is deliberately not offered here — that is a
+ * more sensitive action this v1 does not build a UI for.
+ */
+export async function suspendUser(userId: string, reason: string, suspendedByAdmin: string): Promise<void> {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) throw new AuthError("User not found.");
+  if (user.role !== "CUSTOMER") throw new AuthError("Only customer accounts can be suspended here.");
+  if (user.suspendedAt) throw new AuthError("This account is already suspended.");
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: { suspendedAt: new Date(), suspendedReason: reason.trim() || null, suspendedByAdmin },
+  });
+  // Not just future logins — force out a session that's open right now.
+  await destroyAllSessions(userId);
+
+  logger.warn("auth.user_suspended", { userId, suspendedByAdmin });
+}
+
+export async function reinstateUser(userId: string): Promise<void> {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) throw new AuthError("User not found.");
+  if (!user.suspendedAt) throw new AuthError("This account is not suspended.");
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: { suspendedAt: null, suspendedReason: null, suspendedByAdmin: null },
+  });
+
+  logger.info("auth.user_reinstated", { userId });
 }
 
 /** Role hierarchy for the admin gate: ADMIN can do everything STAFF can. */

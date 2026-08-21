@@ -32,6 +32,7 @@ export default async function AdminUsersPage({
               <th>Email</th>
               <th>Name</th>
               <th>Role</th>
+              <th>Status</th>
               <th>Joined</th>
             </tr>
           </thead>
@@ -41,6 +42,7 @@ export default async function AdminUsersPage({
                 <td><Link href={`/admin/users/${u.id}`}>{u.email}</Link></td>
                 <td>{u.name ?? "—"}</td>
                 <td>{u.role}</td>
+                <td>{u.suspendedAt ? "Suspended" : "Active"}</td>
                 <td>{u.createdAt.toISOString().slice(0, 10)}</td>
               </tr>
             ))}

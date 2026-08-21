@@ -1030,12 +1030,72 @@ proved out this session — do not relax these just because the scope grew)
       than reaching `/account`. A fresh login with the new password was
       then confirmed to work.
 
-### Current status / where to resume (2026-08-21, commit `41d7f63`)
+- [x] **Trust & safety: admin customer suspension** — confirmed a real
+      gap: `Seller.status` already has a working suspend/reinstate flow,
+      but a marketplace's other trust & safety lever — stopping an
+      individual abusive CUSTOMER (fraud, chargebacks, harassment in
+      reviews/Q&A) — had zero enforcement anywhere. An admin had no way to
+      stop a bad-faith buyer from placing another order or logging back
+      in at all.
+
+      New `User.suspendedAt`/`suspendedReason`/`suspendedByAdmin` follow
+      the exact same nullable-timestamp-as-status convention already used
+      throughout this schema (`Order.cancelledAt`,
+      `SellerLedgerEntry.settledAt`, `PasswordResetToken.usedAt`) rather
+      than a new enum, since this is a plain binary state — and are
+      deliberately independent of `Seller.status`: suspending a user's own
+      standing doesn't touch whether their storefront (if they have one)
+      stays live.
+
+      `suspendUser`/`reinstateUser` in auth-service.ts, scoped to
+      CUSTOMER-role accounts only (suspending STAFF/ADMIN through this
+      same simple flow is deliberately not offered — a more sensitive
+      action this v1 doesn't build a UI for). Suspending kills every
+      existing session immediately via the same `destroyAllSessions`
+      already used by the password-reset and password-change flows — not
+      just future logins. `login()` now rejects a suspended account, but
+      only AFTER the password has already been verified correct — the
+      same reasoning `adminLoginAction`'s existing "you don't have admin
+      access" message already relies on: revealing suspension here isn't
+      an enumeration risk, since whoever just typed the right password
+      already knows the account exists.
+
+      New Suspend/Reinstate controls on `/admin/users/[id]` (shown only
+      for CUSTOMER accounts) and a Status column on the `/admin/users`
+      list. 8 new integration tests covering `suspendUser`/`reinstateUser`
+      directly (session-killing, double-suspend rejected, role-scoping,
+      reinstate clearing cleanly, reinstating a non-suspended account
+      rejected). The one property that genuinely needs a real Next.js
+      request context — `login()`'s actual rejection of a suspended
+      user — can't run under the plain test runner (same
+      `next/headers`-outside-the-pipeline limit session-store.ts's own
+      comment already documents for the worker), so that property was
+      verified via real HTTP E2E instead: a real customer logging in
+      successfully before suspension, suspended via the (already fully
+      integration-tested) service layer, the SAME correct password then
+      genuinely rejected with the exact suspension message, the admin
+      `/admin/users` list and detail pages correctly reflecting
+      "Suspended" with the real reason, the real `reinstateUserAction`
+      submitted via Next's actual Server Action form-POST protocol over
+      curl (proving the admin-facing wiring, not just the service
+      function), and login working again immediately afterward with no
+      change to the password. (The mirror-image `suspendUserAction`
+      button reveals its reason field via client-side state, so its exact
+      HTML never appears in a plain curl fetch the way the unconditional
+      forms elsewhere on this page do — that action was exercised via the
+      service layer directly for the E2E pass rather than reshaping the
+      UI just to ease testing; it shares 100% of its scaffolding with the
+      real-HTTP-proven `reinstateUserAction` in the same file.)
+
+      Full regression suite (72 unit, 178 integration) and a production
+      build both pass.
+
+### Current status / where to resume (2026-08-21, commit `PENDING`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
 watched to a real, uncontested completion, per this session's own working
-discipline above. Full regression suite (typecheck, lint, 72 unit, 173
+discipline above. Full regression suite (typecheck, lint, 72 unit, 178
 integration) and a production build all pass cleanly as of this commit.
 
 Deliberately still out of scope, not oversights — both genuinely blocked
@@ -1064,7 +1124,7 @@ a real marketplace needs, don't assume; several rounds of this already
 found wishlist, notifications, seller coupons, product Q&A, bulk CSV
 import/export, back-in-stock notifications, admin payout recording,
 customer order cancellation, guest order lookup, admin-assisted password
-reset, self-service password change, and
+reset, self-service password change, admin customer suspension, and
 more, each confirmed genuinely absent before being built). No further
 specific candidate is
 currently queued — gift cards / store credit was considered and

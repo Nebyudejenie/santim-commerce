@@ -551,6 +551,19 @@ model User {
   role         UserRole @default(CUSTOMER)
   emailVerifiedAt DateTime?
 
+  /// Trust & safety enforcement against a CUSTOMER account — fraud,
+  /// harassment, chargebacks. Deliberately a nullable timestamp, the same
+  /// "null = normal, set = the real thing happened" convention already
+  /// used throughout this schema (Order.cancelledAt,
+  /// SellerLedgerEntry.settledAt, PasswordResetToken.usedAt), not a new
+  /// enum, since this is a plain binary state. Independent of
+  /// Seller.status — suspending a user's ability to sign in/order/review
+  /// does not itself touch whether their storefront (if they have one) is
+  /// live; that already has its own real suspend/reinstate flow.
+  suspendedAt      DateTime?
+  suspendedReason  String?
+  suspendedByAdmin String?
+
   orders    Order[]
   carts     Cart[]
   addresses Address[]
