@@ -1482,7 +1482,7 @@ proved out this session — do not relax these just because the scope grew)
       — correctly shows "Low stock" where the old hardcoded logic would
       have shown nothing.
 
-### Current status / where to resume (2026-08-21, commit `PENDING`)
+### Current status / where to resume (2026-08-21, commit `b25e08c`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
