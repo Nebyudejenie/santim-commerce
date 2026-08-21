@@ -11,7 +11,7 @@ export interface ProductCardData {
   subtitle: string | null;
   heroImage: string | null;
   images: { url: string; alt: string; width: number | null; height: number | null }[];
-  variants: { priceSantim: number; inventory: { onHand: number; reserved: number } | null }[];
+  variants: { priceSantim: number; inventory: { onHand: number; reserved: number; lowStockThreshold: number } | null }[];
 }
 
 export function ProductCard({
@@ -31,7 +31,14 @@ export function ProductCard({
   const image = product.images[0];
   const price = fromPriceSantim(product.variants);
   const available = product.variants.reduce((sum, v) => sum + totalAvailable(v.inventory), 0);
-  const lowStock = available > 0 && available <= 5;
+  // The most conservative real per-variant threshold, not a fixed number —
+  // same fix already applied to the PDP's own stock note. Using the MAX
+  // across variants means the badge fires as soon as ANY variant's own
+  // real threshold would flag it, for an aggregated total with no single
+  // natural threshold of its own.
+  const lowStockThreshold =
+    product.variants.length > 0 ? Math.max(...product.variants.map((v) => v.inventory?.lowStockThreshold ?? 5)) : 5;
+  const lowStock = available > 0 && available <= lowStockThreshold;
   const soldOut = available === 0;
 
   return (
