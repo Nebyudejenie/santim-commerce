@@ -1322,6 +1322,15 @@ model MessageThread {
   buyerLastReadAt  DateTime?
   sellerLastReadAt DateTime?
 
+  /// Trust & safety — an admin-only close, same nullable-timestamp
+  /// convention as ProductQuestion.hiddenAt/ReviewReport's own moderation
+  /// fields elsewhere in this schema. A hidden thread stays fully visible
+  /// to admin (and to the buyer/seller as a read-only transcript) but
+  /// refuses any NEW message from either side — see message-service.ts's
+  /// own comment on why this is checked in the same WHERE clause as
+  /// ownership, not a separate read-then-check.
+  hiddenAt DateTime?
+
   messages Message[]
 
   createdAt DateTime @default(now())

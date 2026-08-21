@@ -16,7 +16,7 @@
  * its own guest-order skip.
  */
 
-import { prisma } from "../db.js";
+import { prisma, type Tx } from "../db.js";
 import { enqueue } from "../outbox.js";
 
 export class MessagingError extends Error {
@@ -84,19 +84,28 @@ export async function getOrCreateThreadForSeller(
   });
 }
 
-/** Ownership via the WHERE clause itself: a threadId that isn't this
+/**
+ * Ownership via the WHERE clause itself: a threadId that isn't this
  * buyer's own simply matches zero rows, same "not found" outcome a
- * cross-user attempt gets everywhere else in this codebase. */
+ * cross-user attempt gets everywhere else in this codebase. `hiddenAt:
+ * null` is checked in the SAME clause, not a separate read-then-check —
+ * a real database-enforced refusal, not just a nicer error message. The
+ * fallback lookup in `throwSendFailure` below only ever runs AFTER this
+ * clause already failed, and re-checks ownership on its own (never just
+ * `hiddenAt`) — a non-owner probing a threadId they don't own must never
+ * learn whether it happens to be hidden, only that it's "not found",
+ * same as any other id they don't own.
+ */
 export async function sendBuyerMessage(userId: string, threadId: string, body: string): Promise<void> {
   const trimmed = validateBody(body);
 
   await prisma.$transaction(async (tx) => {
     const result = await tx.messageThread.updateMany({
-      where: { id: threadId, buyerUserId: userId },
+      where: { id: threadId, buyerUserId: userId, hiddenAt: null },
       // The sender has implicitly "read" up to their own message.
       data: { buyerLastReadAt: new Date() },
     });
-    if (result.count !== 1) throw new MessagingError("Conversation not found.");
+    if (result.count !== 1) await throwSendFailure(tx, { id: threadId, buyerUserId: userId });
 
     const message = await tx.message.create({ data: { threadId, senderUserId: userId, body: trimmed } });
     // Side effect through the outbox, never a direct call inside this
@@ -115,14 +124,31 @@ export async function sendSellerMessage(
 
   await prisma.$transaction(async (tx) => {
     const result = await tx.messageThread.updateMany({
-      where: { id: threadId, sellerId },
+      where: { id: threadId, sellerId, hiddenAt: null },
       data: { sellerLastReadAt: new Date() },
     });
-    if (result.count !== 1) throw new MessagingError("Conversation not found.");
+    if (result.count !== 1) await throwSendFailure(tx, { id: threadId, sellerId });
 
     const message = await tx.message.create({ data: { threadId, senderUserId, body: trimmed } });
     await enqueue(tx, "message.sent", { messageId: message.id });
   });
+}
+
+/** Only reached once the real ownership+hidden update above already
+ * matched zero rows. Re-checks ownership ALONE (never `hiddenAt` alone)
+ * so a caller who doesn't own this thread gets the exact same generic
+ * "not found" a bogus id gets — the more specific message is only ever
+ * shown to a caller who genuinely owns the thread and hit the hidden
+ * case, never used as an oracle for a thread that isn't theirs. */
+async function throwSendFailure(
+  tx: Tx,
+  ownershipWhere: { id: string; buyerUserId: string } | { id: string; sellerId: string },
+): Promise<never> {
+  const owned = await tx.messageThread.findFirst({ where: ownershipWhere, select: { hiddenAt: true } });
+  if (owned?.hiddenAt) {
+    throw new MessagingError("This conversation has been closed by an administrator.");
+  }
+  throw new MessagingError("Conversation not found.");
 }
 
 export async function getThreadForBuyer(userId: string, threadId: string) {
@@ -223,4 +249,56 @@ export async function listThreadsForSeller(sellerId: string) {
       lastMessageAt: thread.messages[0]?.createdAt ?? thread.createdAt,
     }))
     .sort((a, b) => b.lastMessageAt.getTime() - a.lastMessageAt.getTime());
+}
+
+/**
+ * Admin trust & safety surface — unlike every query above, deliberately
+ * NOT ownership-scoped: staff needs to see every real conversation on the
+ * platform to investigate a dispute or moderate abuse. `search` matches
+ * an order number, the buyer's email, or the seller's store name — the
+ * three things a support agent would actually have on hand when someone
+ * reports a bad conversation.
+ */
+export async function listThreadsForAdmin(search?: string, take = 100) {
+  return prisma.messageThread.findMany({
+    where: search
+      ? {
+          OR: [
+            { order: { orderNumber: { contains: search, mode: "insensitive" } } },
+            { buyer: { email: { contains: search, mode: "insensitive" } } },
+            { seller: { storeName: { contains: search, mode: "insensitive" } } },
+          ],
+        }
+      : undefined,
+    orderBy: { createdAt: "desc" },
+    take,
+    include: {
+      order: { select: { orderNumber: true } },
+      buyer: { select: { name: true, email: true } },
+      seller: { select: { storeName: true } },
+      _count: { select: { messages: true } },
+    },
+  });
+}
+
+/** Full real transcript, no ownership scoping — see listThreadsForAdmin's
+ * own comment on why staff needs unrestricted read access here. */
+export async function getThreadForAdmin(threadId: string) {
+  return prisma.messageThread.findUnique({
+    where: { id: threadId },
+    include: {
+      order: { select: { orderNumber: true } },
+      buyer: { select: { name: true, email: true } },
+      seller: { select: { storeName: true } },
+      messages: { orderBy: { createdAt: "asc" } },
+    },
+  });
+}
+
+export async function hideThread(threadId: string): Promise<void> {
+  await prisma.messageThread.update({ where: { id: threadId }, data: { hiddenAt: new Date() } });
+}
+
+export async function unhideThread(threadId: string): Promise<void> {
+  await prisma.messageThread.update({ where: { id: threadId }, data: { hiddenAt: null } });
 }

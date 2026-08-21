@@ -29,12 +29,16 @@ export function MessageThreadView({
   threadId,
   otherPartyLabel,
   messages,
+  closed,
   sendAction,
   markReadAction,
 }: {
   threadId: string;
   otherPartyLabel: string;
   messages: MessageItem[];
+  /** Set once an admin has closed this thread (MessageThread.hiddenAt) —
+   * the transcript stays fully visible, but no new message can be sent. */
+  closed?: boolean;
   sendAction: (prev: MessageActionState, formData: FormData) => Promise<MessageActionState>;
   markReadAction: (threadId: string) => Promise<void>;
 }) {
@@ -77,21 +81,27 @@ export function MessageThreadView({
         )}
       </div>
 
-      <form action={formAction}>
-        <input type="hidden" name="threadId" value={threadId} />
-        <textarea
-          name="body"
-          placeholder={`Message ${otherPartyLabel}…`}
-          required
-          minLength={1}
-          rows={3}
-          style={{ width: "100%", marginBottom: "var(--space-2)" }}
-        />
-        <button type="submit" className="btn btn--primary btn-sm" disabled={pending}>
-          {pending ? "Sending…" : "Send"}
-        </button>
-        {state.message && !state.ok && <p className="form-hint form-hint--error">{state.message}</p>}
-      </form>
+      {closed ? (
+        <p style={{ color: "var(--fg-muted)", fontSize: "var(--text-sm)" }}>
+          This conversation has been closed by an administrator.
+        </p>
+      ) : (
+        <form action={formAction}>
+          <input type="hidden" name="threadId" value={threadId} />
+          <textarea
+            name="body"
+            placeholder={`Message ${otherPartyLabel}…`}
+            required
+            minLength={1}
+            rows={3}
+            style={{ width: "100%", marginBottom: "var(--space-2)" }}
+          />
+          <button type="submit" className="btn btn--primary btn-sm" disabled={pending}>
+            {pending ? "Sending…" : "Send"}
+          </button>
+          {state.message && !state.ok && <p className="form-hint form-hint--error">{state.message}</p>}
+        </form>
+      )}
     </div>
   );
 }

@@ -294,8 +294,8 @@ seller domain existing first)
       surface) was deferred here as its own multi-part feature — since
       built, see the "Buyer-seller order messaging" entry below. Its admin
       moderation surface (staff visibility/takedown of an abusive thread)
-      is still NOT built — the same "half-built" reasoning that deferred
-      messaging itself now applies specifically to that follow-on piece.
+      is also now built — see "Admin buyer-seller message moderation"
+      further below.
 
 ### Post-roadmap: the mandate's own "do not stop when the TODO list is
 finished" instruction (section 28) — continuing past the 11-item roadmap
@@ -1756,12 +1756,57 @@ proved out this session — do not relax these just because the scope grew)
       thread URL by id-guessing. All seeded data and verify scripts
       cleaned up afterward.
 
-### Current status / where to resume (2026-08-21, commit `b2f36ea`)
+- [x] **Admin buyer-seller message moderation** — closes the gap this
+      session's own previous entry (buyer-seller order messaging) flagged
+      explicitly: "its admin moderation surface... is still NOT built."
+      New `MessageThread.hiddenAt` (same nullable-timestamp convention as
+      `ProductQuestion.hiddenAt`/`ReviewReport`'s own moderation fields).
+      New unscoped admin queries `listThreadsForAdmin`/`getThreadForAdmin`
+      — deliberately the only messaging queries in the whole module NOT
+      ownership-scoped, since staff needs to see any real conversation to
+      investigate a dispute or moderate abuse; `hideThread`/`unhideThread`
+      toggle the flag. `sendBuyerMessage`/`sendSellerMessage` now check
+      `hiddenAt: null` in the SAME ownership WHERE clause as the ownership
+      check itself — a real database-enforced refusal, not just a UI
+      hide. A more specific "closed by an administrator" error is shown
+      only once ownership is independently re-confirmed on the failure
+      path — a non-owner probing a hidden thread's id still gets the
+      exact same generic "not found" a bogus id gets, never an oracle for
+      whether an unrelated thread happens to be hidden.
+
+      New `/admin/messages` (searchable by order number, buyer email, or
+      store name) and `/admin/messages/[threadId]` (full real transcript,
+      close/reopen button) — both inherit the dashboard layout's existing
+      `requireRole("STAFF")` gate; the Server Actions independently call
+      `requireRole` too, same in-action-auth discipline as every other
+      action this session. Both actions write a real `AdminAuditLog` row
+      via the existing `recordAdminAction` helper. The buyer/seller thread
+      pages now show a real "closed by an administrator" notice in place
+      of the reply form once hidden — computed from the same `hiddenAt`
+      field the send-path enforces, not a separate flag that could drift.
+
+      2 new integration tests (a hidden thread refuses both sides with the
+      specific message, reopening restores it, and a non-owner never
+      learns hidden-state for a thread that isn't theirs; admin queries
+      see every real thread unscoped by ownership). Full regression suite
+      (72 unit, 237 integration, run twice) and a production build pass.
+      Real HTTP E2E: seeded a real buyer/seller/order/thread/message,
+      logged in as a real STAFF admin, confirmed the real thread appears
+      in `/admin/messages` and its full transcript renders at
+      `/admin/messages/[threadId]`, closed it through the real form,
+      confirmed the real buyer's own thread page now shows the closed
+      notice instead of a reply form, reopened it through the real form,
+      confirmed the buyer could send a real message again, and confirmed
+      both the hide and reopen actions produced real `AdminAuditLog` rows
+      attributing the real admin. All seeded data and verify scripts
+      cleaned up afterward.
+
+### Current status / where to resume (2026-08-21, commit `PENDING`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
 watched to a real, uncontested completion, per this session's own working
-discipline above. Full regression suite (typecheck, lint, 72 unit, 235
+discipline above. Full regression suite (typecheck, lint, 72 unit, 237
 integration) and a production build all pass cleanly as of this commit.
 
 Deliberately still out of scope, not oversights — both genuinely blocked
@@ -1795,7 +1840,7 @@ self-service storefront settings, order delivery notes, seller low-stock
 alerts, compare-at pricing, SEO title/description, self-service account
 deletion, related products, the ProductCard low-stock badge fix, an
 admin audit log, product Q&A moderation, self-service data export, seller order search/filter, customer order search, admin users CSV export, seller vacation mode, seller "new sale" notification, buyer-seller order
-messaging, and more, each confirmed genuinely absent before being built). No further
+messaging, admin message moderation, and more, each confirmed genuinely absent before being built). No further
 specific candidate is currently queued — the systematic dead-field
 audit's one remaining finding, `User.emailVerifiedAt`, is confirmed dead
 but correctly out of scope (see the compare-at entry above for why).

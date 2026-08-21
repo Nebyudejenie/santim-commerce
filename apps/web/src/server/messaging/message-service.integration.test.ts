@@ -13,8 +13,11 @@ import { PrismaClient } from "@prisma/client";
 import {
   getOrCreateThreadForBuyer,
   getOrCreateThreadForSeller,
+  getThreadForAdmin,
   getThreadForBuyer,
   getThreadForSeller,
+  hideThread,
+  listThreadsForAdmin,
   listThreadsForBuyer,
   listThreadsForSeller,
   markThreadReadByBuyer,
@@ -22,6 +25,7 @@ import {
   MessagingError,
   sendBuyerMessage,
   sendSellerMessage,
+  unhideThread,
 } from "./message-service.ts";
 
 const prisma = new PrismaClient();
@@ -273,6 +277,66 @@ test("per-side unread computation: a reply is unread for the recipient until the
   await markThreadReadByBuyer(userId, thread!.id);
   buyerInbox = await listThreadsForBuyer(userId);
   assert.equal(buyerInbox.find((t) => t.id === thread!.id)!.unread, false);
+});
+
+test("an admin-hidden thread refuses new messages from either side, with a specific message for the real owner", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const userId = await makeBuyer(suffix);
+  const { ownerId, sellerId, variantId } = await makeSellerWithProduct(suffix);
+  const orderId = await makeOrder(suffix, userId, [{ sellerId, variantId }]);
+  const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+  const thread = await getOrCreateThreadForBuyer(userId, order.orderNumber, sellerId);
+  await sendBuyerMessage(userId, thread!.id, "Before closing.");
+
+  await hideThread(thread!.id);
+
+  await assert.rejects(
+    () => sendBuyerMessage(userId, thread!.id, "After closing, from buyer"),
+    (error: unknown) => error instanceof MessagingError && error.message.includes("closed by an administrator"),
+  );
+  await assert.rejects(
+    () => sendSellerMessage(sellerId, ownerId, thread!.id, "After closing, from seller"),
+    (error: unknown) => error instanceof MessagingError && error.message.includes("closed by an administrator"),
+  );
+
+  // A non-owner probing this (hidden) threadId must still see the exact
+  // same generic "not found" a bogus id gets — hidden state is never an
+  // oracle for a thread that isn't theirs.
+  const otherUserId = await makeBuyer(`${suffix}-other`);
+  await assert.rejects(
+    () => sendBuyerMessage(otherUserId, thread!.id, "not my thread"),
+    (error: unknown) => error instanceof MessagingError && error.message === "Conversation not found.",
+  );
+
+  await unhideThread(thread!.id);
+  await sendBuyerMessage(userId, thread!.id, "After reopening.");
+  const detail = await getThreadForBuyer(userId, thread!.id);
+  assert.equal(detail!.messages.length, 2, "reopening must allow new messages again");
+});
+
+test("listThreadsForAdmin and getThreadForAdmin see every real thread, unscoped by ownership", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const userId = await makeBuyer(suffix);
+  const { sellerId, variantId } = await makeSellerWithProduct(suffix);
+  const seller = await prisma.seller.findUniqueOrThrow({ where: { id: sellerId } });
+  const orderId = await makeOrder(suffix, userId, [{ sellerId, variantId }]);
+  const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+  const thread = await getOrCreateThreadForBuyer(userId, order.orderNumber, sellerId);
+  await sendBuyerMessage(userId, thread!.id, "Admin visibility check.");
+
+  const byOrderNumber = await listThreadsForAdmin(order.orderNumber);
+  assert.ok(byOrderNumber.some((t) => t.id === thread!.id));
+
+  const bySellerName = await listThreadsForAdmin(seller.storeName);
+  assert.ok(bySellerName.some((t) => t.id === thread!.id));
+
+  const detail = await getThreadForAdmin(thread!.id);
+  assert.equal(detail!.messages.length, 1);
+  assert.equal(detail!.hiddenAt, null);
+
+  await hideThread(thread!.id);
+  const afterHide = await getThreadForAdmin(thread!.id);
+  assert.ok(afterHide!.hiddenAt);
 });
 
 test.after(async () => {

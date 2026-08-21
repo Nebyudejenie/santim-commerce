@@ -51,6 +51,7 @@ export default async function SellerThreadPage({ params }: Props) {
           createdAt: m.createdAt.toISOString(),
           fromMe: m.senderUserId !== thread.buyerUserId,
         }))}
+        closed={Boolean(thread.hiddenAt)}
         sendAction={sendSellerMessageAction}
         markReadAction={markThreadReadAsSellerAction}
       />
