@@ -1603,12 +1603,30 @@ proved out this session — do not relax these just because the scope grew)
       title each isolate the right one, and a non-matching search
       correctly shows "No matching orders."
 
-### Current status / where to resume (2026-08-21, commit `431e1d1`)
+- [x] **Admin users CSV export** — confirmed absent (orders/products both
+      already had this; users didn't). New `exportUsersCsv`, same
+      established convention as `exportOrdersCsv` — same filter shape as
+      `listUsersForAdmin`, a real orders-of-magnitude-larger row cap. New
+      `GET /admin/users/export` Route Handler (checks its own
+      authorization directly, same discipline as every other admin
+      export route), "Export CSV" link on `/admin/users` preserving the
+      current search.
+
+      1 new integration test, same cross-file-interference-avoidance
+      technique already established for `exportOrdersCsv`'s own test
+      (scope the search to this test's own unique email). Full
+      regression suite (72 unit, 214 integration) and a production build
+      pass. Verified end-to-end over real HTTP: a real admin session, a
+      real filtered CSV download with the correct headers and exactly
+      the one matching real user, and an unauthenticated request to the
+      same route confirmed redirected to login.
+
+### Current status / where to resume (2026-08-21, commit `PENDING`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
 watched to a real, uncontested completion, per this session's own working
-discipline above. Full regression suite (typecheck, lint, 72 unit, 213
+discipline above. Full regression suite (typecheck, lint, 72 unit, 214
 integration) and a production build all pass cleanly as of this commit.
 
 Deliberately still out of scope, not oversights — both genuinely blocked
@@ -1641,7 +1659,7 @@ reset, self-service password change, admin customer suspension, seller
 self-service storefront settings, order delivery notes, seller low-stock
 alerts, compare-at pricing, SEO title/description, self-service account
 deletion, related products, the ProductCard low-stock badge fix, an
-admin audit log, product Q&A moderation, self-service data export, seller order search/filter, customer order search, and
+admin audit log, product Q&A moderation, self-service data export, seller order search/filter, customer order search, admin users CSV export, and
 more, each confirmed genuinely absent before being built). No further
 specific candidate is currently queued — the systematic dead-field
 audit's one remaining finding, `User.emailVerifiedAt`, is confirmed dead

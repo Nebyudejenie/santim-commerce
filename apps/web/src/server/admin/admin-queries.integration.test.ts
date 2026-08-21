@@ -9,7 +9,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { PrismaClient } from "@prisma/client";
-import { exportOrdersCsv, getBusinessMetrics, listAllProductsForAdmin } from "./admin-queries.ts";
+import { exportOrdersCsv, exportUsersCsv, getBusinessMetrics, listAllProductsForAdmin } from "./admin-queries.ts";
 import { parseCsvWithHeader } from "../catalogue/csv.ts";
 
 const prisma = new PrismaClient();
@@ -205,6 +205,24 @@ test("exportOrdersCsv produces a real, correctly quoted CSV for the filtered ord
   assert.equal(records[0]!.status, "PAID");
   assert.equal(records[0]!.totalBirr, "249.99");
   assert.ok(records[0]!.paidAt, "a real paidAt timestamp must be present for a PAID order");
+});
+
+// Same real cross-file interference risk as exportOrdersCsv above — a
+// marketplace-wide query with no natural scoping — sidestepped the same
+// way: searching by this test's own unique email.
+test("exportUsersCsv produces a real, correctly quoted CSV for the searched users only", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const email = `admin-metrics-export-${suffix}@example.et`;
+  await prisma.user.create({ data: { email, name: "Export Test User", role: "CUSTOMER" } });
+
+  const csv = await exportUsersCsv(email);
+  const records = parseCsvWithHeader(csv);
+
+  assert.equal(records.length, 1, "the search filter must scope this export to exactly the one real matching user");
+  assert.equal(records[0]!.email, email);
+  assert.equal(records[0]!.name, "Export Test User");
+  assert.equal(records[0]!.role, "CUSTOMER");
+  assert.equal(records[0]!.status, "Active");
 });
 
 test.after(async () => {

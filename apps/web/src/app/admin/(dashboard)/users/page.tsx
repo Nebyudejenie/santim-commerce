@@ -12,11 +12,13 @@ export default async function AdminUsersPage({
 }) {
   const { q } = await searchParams;
   const users = await listUsersForAdmin(q);
+  const exportHref = `/admin/users/export${q ? `?q=${encodeURIComponent(q)}` : ""}`;
 
   return (
     <div>
       <div className="admin-header">
         <h1>Users</h1>
+        <Link href={exportHref} className="btn btn--secondary btn-sm">Export CSV</Link>
       </div>
 
       <form method="get" style={{ marginBottom: "var(--space-5)" }}>

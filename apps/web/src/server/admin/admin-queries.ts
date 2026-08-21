@@ -269,6 +269,27 @@ export async function listUsersForAdmin(search?: string, take = 50) {
   });
 }
 
+const USER_EXPORT_HEADER = ["id", "email", "name", "role", "status", "createdAt"] as const;
+const USER_EXPORT_MAX_ROWS = 10_000;
+
+/** Same filter shape as listUsersForAdmin, a real orders-of-magnitude-larger
+ * cap — confirmed absent before this, matching exportOrdersCsv's own
+ * established convention. */
+export async function exportUsersCsv(search?: string): Promise<string> {
+  const users = await listUsersForAdmin(search, USER_EXPORT_MAX_ROWS);
+
+  const rows = users.map((u) => [
+    u.id,
+    u.email,
+    u.name ?? "",
+    u.role,
+    u.deletedAt ? "Deleted" : u.suspendedAt ? "Suspended" : "Active",
+    u.createdAt.toISOString(),
+  ]);
+
+  return writeCsv(USER_EXPORT_HEADER, rows);
+}
+
 export async function getUserForAdmin(userId: string) {
   return prisma.user.findUnique({
     where: { id: userId },
