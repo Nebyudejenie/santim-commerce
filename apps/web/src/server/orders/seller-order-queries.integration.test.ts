@@ -80,6 +80,31 @@ test("getSellerOrderDetail returns real buyer contact/shipping info for the OWNI
   assert.equal(detail.lines.length, 1);
 });
 
+test("listSellerOrderLines search matches the order number or the buyer's email, scoped to this seller only", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const { sellerId, orderNumber } = await makeSellerWithSoldOrder(suffix);
+
+  const byOrderNumber = await listSellerOrderLines(sellerId, { search: orderNumber });
+  assert.equal(byOrderNumber.length, 1);
+
+  const byEmail = await listSellerOrderLines(sellerId, { search: `buyer-${suffix}@example.et` });
+  assert.equal(byEmail.length, 1);
+
+  const noMatch = await listSellerOrderLines(sellerId, { search: "no-such-order-or-email" });
+  assert.equal(noMatch.length, 0);
+});
+
+test("listSellerOrderLines filters by the LINE's own fulfilmentStatus", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const { sellerId, orderNumber } = await makeSellerWithSoldOrder(suffix);
+
+  const unfulfilled = await listSellerOrderLines(sellerId, { search: orderNumber, fulfilmentStatus: "UNFULFILLED" });
+  assert.equal(unfulfilled.length, 1);
+
+  const fulfilled = await listSellerOrderLines(sellerId, { search: orderNumber, fulfilmentStatus: "FULFILLED" });
+  assert.equal(fulfilled.length, 0, "a genuinely UNFULFILLED line must not match a FULFILLED filter");
+});
+
 test.after(async () => {
   await prisma.orderLine.deleteMany({ where: { order: { orderNumber: { startsWith: "SC-SELLORD" } } } });
   await prisma.order.deleteMany({ where: { orderNumber: { startsWith: "SC-SELLORD" } } });

@@ -14,13 +14,36 @@
  * before it's actually paid for is a false signal, not useful information.
  */
 
+import type { FulfilmentStatus } from "@prisma/client";
 import { prisma } from "../db.js";
 
 const SOLD_ORDER_STATUSES = ["PAID", "REFUNDED", "PARTIALLY_REFUNDED"] as const;
 
-export async function listSellerOrderLines(sellerId: string, take = 100) {
+export interface SellerOrderFilter {
+  readonly fulfilmentStatus?: FulfilmentStatus;
+  /** Matches an order number or the buyer's checkout email — confirmed
+   * absent before this: a seller with more than `take` sales had no way
+   * to find an older or specific one at all. */
+  readonly search?: string;
+}
+
+export async function listSellerOrderLines(sellerId: string, filter: SellerOrderFilter = {}, take = 100) {
   return prisma.orderLine.findMany({
-    where: { sellerId, order: { status: { in: [...SOLD_ORDER_STATUSES] } } },
+    where: {
+      sellerId,
+      ...(filter.fulfilmentStatus ? { fulfilmentStatus: filter.fulfilmentStatus } : {}),
+      order: {
+        status: { in: [...SOLD_ORDER_STATUSES] },
+        ...(filter.search
+          ? {
+              OR: [
+                { orderNumber: { contains: filter.search, mode: "insensitive" } },
+                { email: { contains: filter.search, mode: "insensitive" } },
+              ],
+            }
+          : {}),
+      },
+    },
     orderBy: { createdAt: "desc" },
     take,
     include: {

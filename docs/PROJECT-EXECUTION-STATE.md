@@ -1571,12 +1571,30 @@ proved out this session — do not relax these just because the scope grew)
       an unauthenticated request to the same route confirmed redirected
       to login.
 
-### Current status / where to resume (2026-08-21, commit `e46c275`)
+- [x] **Seller order search/filter** — confirmed absent: `listSellerOrderLines`
+      was capped at 100 with no way to search or filter at all, unlike
+      admin's own `/admin/orders`. A seller with more than 100 sales had
+      no way to find an older or specific one. New `SellerOrderFilter`
+      (`search` — order number or buyer email; `fulfilmentStatus` — the
+      LINE's own status, matching this schema's existing "per-line, not
+      just per-order" fulfilment design). New search/filter form on
+      `/sell/orders`, mirroring the admin orders page's own convention.
+
+      2 new integration tests (search matches order number or buyer
+      email, scoped to the calling seller only; filter matches the
+      line's real fulfilment status). Full regression suite (72 unit,
+      212 integration) and a production build pass. Verified end-to-end
+      over real HTTP: two real seeded orders, confirmed both show
+      unfiltered, confirmed search by order number and by buyer email
+      each isolate the right one, and confirmed a fulfilment-status
+      filter isolates the right one too.
+
+### Current status / where to resume (2026-08-21, commit `PENDING`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
 watched to a real, uncontested completion, per this session's own working
-discipline above. Full regression suite (typecheck, lint, 72 unit, 210
+discipline above. Full regression suite (typecheck, lint, 72 unit, 212
 integration) and a production build all pass cleanly as of this commit.
 
 Deliberately still out of scope, not oversights — both genuinely blocked
@@ -1609,7 +1627,7 @@ reset, self-service password change, admin customer suspension, seller
 self-service storefront settings, order delivery notes, seller low-stock
 alerts, compare-at pricing, SEO title/description, self-service account
 deletion, related products, the ProductCard low-stock badge fix, an
-admin audit log, product Q&A moderation, self-service data export, and
+admin audit log, product Q&A moderation, self-service data export, seller order search/filter, and
 more, each confirmed genuinely absent before being built). No further
 specific candidate is currently queued — the systematic dead-field
 audit's one remaining finding, `User.emailVerifiedAt`, is confirmed dead
