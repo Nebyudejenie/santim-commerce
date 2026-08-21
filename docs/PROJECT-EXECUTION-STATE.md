@@ -1429,12 +1429,53 @@ proved out this session — do not relax these just because the scope grew)
       gets; and the admin list/detail pages correctly showing "Deleted"
       with the recovery/suspension controls hidden.
 
-### Current status / where to resume (2026-08-21, commit `dd7ab67`)
+- [x] **Related products ("more from this seller")** — confirmed absent:
+      zero matches anywhere for related/similar/cross-sell. A real,
+      standard e-commerce feature this marketplace had no version of at
+      all — a customer finishing a product page had no path to discover
+      anything else, even from the SAME seller they were already
+      considering buying from.
+
+      Deliberately the simplest correct definition, not a fabricated
+      recommendation engine: other currently-visible products from the
+      same seller, the same framing comparable marketplaces (Etsy, eBay)
+      already use for exactly this, rather than pretending to a
+      collaborative-filtering signal this app has no real data to back.
+      New `listRelatedProducts(sellerId, excludeProductId, take)` reuses
+      the exact same `VISIBLE_PRODUCT_WHERE` visibility rule every other
+      browsing query in catalogue-service.ts already enforces — a
+      suspended seller's or an unpublished listing's other products
+      correctly never appear. New section on the product page, reusing
+      the existing `ProductCard` grid component (same wishlist-button
+      wiring already established for every other product grid this
+      session), hidden entirely rather than shown empty when a seller
+      has no other visible listings.
+
+      First dedicated test coverage for catalogue-service.ts at all — 5
+      new integration tests (excludes the product itself; never crosses
+      seller boundaries; excludes a DRAFT sibling; excludes every
+      listing once the seller is suspended; respects the take limit).
+      Full regression suite (72 unit, 204 integration) and a production
+      build pass. Verified end-to-end over real HTTP: a real product
+      page showing two real sibling listings from the same seller under
+      "More from [Seller]", a third, unrelated seller's product
+      confirmed absent from that section, and the section confirmed
+      fully hidden (not shown empty) for a seller with no other
+      listings. (Noted, not fixed here, to keep this pass focused:
+      `ProductCard`'s own "Low stock" badge is STILL hardcoded to `<= 5`
+      rather than reading `Inventory.lowStockThreshold` — the same bug
+      class already fixed on the PDP's stock note earlier this session,
+      not yet fixed on the grid card because aggregating across several
+      variants with potentially different thresholds needs a real design
+      decision, the same complexity already deferred for compare-at
+      pricing's own grid-card display.)
+
+### Current status / where to resume (2026-08-21, commit `PENDING`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
 watched to a real, uncontested completion, per this session's own working
-discipline above. Full regression suite (typecheck, lint, 72 unit, 199
+discipline above. Full regression suite (typecheck, lint, 72 unit, 204
 integration) and a production build all pass cleanly as of this commit.
 
 Deliberately still out of scope, not oversights — both genuinely blocked
@@ -1466,12 +1507,15 @@ customer order cancellation, guest order lookup, admin-assisted password
 reset, self-service password change, admin customer suspension, seller
 self-service storefront settings, order delivery notes, seller low-stock
 alerts, compare-at pricing, SEO title/description, self-service account
-deletion, and
-more, each confirmed genuinely absent before being built). No further
-specific candidate is
-currently queued — the systematic dead-field audit's one remaining
-finding, `User.emailVerifiedAt`, is confirmed dead but correctly out of
-scope (see the compare-at entry above for why). Gift cards / store
+deletion, related products, and
+more, each confirmed genuinely absent before being built). One real,
+small, well-understood candidate is already queued for next time:
+`ProductCard`'s grid-level "Low stock" badge is still hardcoded to
+`<= 5` rather than reading the real per-variant `Inventory.
+lowStockThreshold` (see the related-products entry above). Separately,
+the systematic dead-field audit's one remaining finding,
+`User.emailVerifiedAt`, is confirmed dead but correctly out of scope
+(see the compare-at entry further above for why). Gift cards / store
 credit was considered and
 deliberately not pursued: unlike everything built this session, issuing
 one would need a real payment-collection step, the same real-gateway-

@@ -77,6 +77,25 @@ export async function getProductBySlug(slug: string) {
 }
 
 /**
+ * Cross-sell for the product page — confirmed absent (no "related" /
+ * "similar" / "also bought" anywhere in this codebase). Deliberately the
+ * simplest correct definition, not a recommendation engine: other
+ * currently-visible products from the SAME seller, matching how
+ * comparable marketplaces (Etsy, eBay) frame this as "more from this
+ * shop" rather than pretending to a collaborative-filtering signal this
+ * app has no data to back. `excludeProductId` keeps a product from
+ * recommending itself.
+ */
+export async function listRelatedProducts(sellerId: string, excludeProductId: string, take = 4) {
+  return prisma.product.findMany({
+    where: { ...VISIBLE_PRODUCT_WHERE, sellerId, id: { not: excludeProductId } },
+    orderBy: { createdAt: "desc" },
+    take,
+    include: { variants: ACTIVE_VARIANT_WITH_STOCK, images: { orderBy: { position: "asc" } } },
+  });
+}
+
+/**
  * The public storefront view of a seller — only ever returns an APPROVED
  * seller (a suspended/pending/rejected one is not a real store to browse,
  * same visibility rule as VISIBLE_PRODUCT_WHERE above) and only their

@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { getProductBySlug, totalAvailable } from "@/server/catalogue/catalogue-service";
+import { getProductBySlug, listRelatedProducts, totalAvailable } from "@/server/catalogue/catalogue-service";
 import { AddToCartForm, type VariantOption } from "@/components/add-to-cart-form";
 import { ProductImage } from "@/components/product-image";
+import { ProductCard } from "@/components/product-card";
 import { StarRating } from "@/components/star-rating";
 import { ReviewList } from "@/components/review-list";
 import { ReviewForm } from "@/components/review-form";
@@ -14,7 +15,7 @@ import {
   hasReviewed,
   listProductReviews,
 } from "@/server/reviews/review-service";
-import { isWishlisted } from "@/server/wishlist/wishlist-service";
+import { isWishlisted, listWishlistedProductIds } from "@/server/wishlist/wishlist-service";
 import { WishlistButton } from "@/components/wishlist-button";
 import { listQuestionsForProduct } from "@/server/reviews/product-qa-service";
 import { AskQuestionForm } from "@/components/ask-question-form";
@@ -78,16 +79,19 @@ export default async function ProductPage({ params }: Props) {
     }
   }
 
-  const [rating, reviews, alreadyReviewed, eligibleLine, alreadyWishlisted, questions, requestedVariantIds] = await Promise.all([
-    getProductRating(product.id),
-    listProductReviews(product.id),
-    user ? hasReviewed(user.id, product.id) : Promise.resolve(false),
-    user ? findEligibleOrderLine(user.id, product.id) : Promise.resolve(null),
-    user ? isWishlisted(user.id, product.id) : Promise.resolve(false),
-    listQuestionsForProduct(product.id),
-    user ? listPendingRequestedVariantIds(user.id, product.variants.map((v) => v.id)) : Promise.resolve(new Set<string>()),
-  ]);
+  const [rating, reviews, alreadyReviewed, eligibleLine, alreadyWishlisted, questions, requestedVariantIds, relatedProducts] =
+    await Promise.all([
+      getProductRating(product.id),
+      listProductReviews(product.id),
+      user ? hasReviewed(user.id, product.id) : Promise.resolve(false),
+      user ? findEligibleOrderLine(user.id, product.id) : Promise.resolve(null),
+      user ? isWishlisted(user.id, product.id) : Promise.resolve(false),
+      listQuestionsForProduct(product.id),
+      user ? listPendingRequestedVariantIds(user.id, product.variants.map((v) => v.id)) : Promise.resolve(new Set<string>()),
+      listRelatedProducts(product.sellerId, product.id),
+    ]);
   const canReview = user !== null && !alreadyReviewed && eligibleLine !== null;
+  const relatedWishlistedIds = user ? await listWishlistedProductIds(user.id) : new Set<string>();
 
   const priceValues = variants.map((v) => v.priceSantim / 100);
   const totalAvailableStock = variants.reduce((sum, v) => sum + v.available, 0);
@@ -242,6 +246,25 @@ export default async function ProductPage({ params }: Props) {
         </div>
       </div>
       </div>
+
+      {relatedProducts.length > 0 && (
+        <div style={{ marginTop: "var(--space-8)" }}>
+          <h2 style={{ fontSize: "var(--text-lg)", marginBottom: "var(--space-4)" }}>
+            More from {product.seller.storeName}
+          </h2>
+          <div className="product-grid">
+            {relatedProducts.map((related, i) => (
+              <ProductCard
+                key={related.id}
+                product={related}
+                index={i}
+                signedIn={Boolean(user)}
+                wishlisted={relatedWishlistedIds.has(related.id)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
