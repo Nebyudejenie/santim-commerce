@@ -19,6 +19,7 @@ import { WishlistButton } from "@/components/wishlist-button";
 import { listQuestionsForProduct } from "@/server/reviews/product-qa-service";
 import { AskQuestionForm } from "@/components/ask-question-form";
 import { recordView } from "@/server/catalogue/recently-viewed-service";
+import { listPendingRequestedVariantIds } from "@/server/catalogue/back-in-stock-service";
 import { logger } from "@/server/observability/logger";
 
 interface Props {
@@ -75,13 +76,14 @@ export default async function ProductPage({ params }: Props) {
     }
   }
 
-  const [rating, reviews, alreadyReviewed, eligibleLine, alreadyWishlisted, questions] = await Promise.all([
+  const [rating, reviews, alreadyReviewed, eligibleLine, alreadyWishlisted, questions, requestedVariantIds] = await Promise.all([
     getProductRating(product.id),
     listProductReviews(product.id),
     user ? hasReviewed(user.id, product.id) : Promise.resolve(false),
     user ? findEligibleOrderLine(user.id, product.id) : Promise.resolve(null),
     user ? isWishlisted(user.id, product.id) : Promise.resolve(false),
     listQuestionsForProduct(product.id),
+    user ? listPendingRequestedVariantIds(user.id, product.variants.map((v) => v.id)) : Promise.resolve(new Set<string>()),
   ]);
   const canReview = user !== null && !alreadyReviewed && eligibleLine !== null;
 
@@ -182,7 +184,7 @@ export default async function ProductPage({ params }: Props) {
         <div style={{ display: "flex", gap: "var(--space-3)", alignItems: "flex-start", marginBottom: "var(--space-4)" }}>
           {variants.length > 0 ? (
             <div style={{ flex: 1 }}>
-              <AddToCartForm variants={variants} />
+              <AddToCartForm variants={variants} signedIn={Boolean(user)} requestedVariantIds={[...requestedVariantIds]} />
             </div>
           ) : (
             <p className="alert alert--error" style={{ flex: 1 }}>No purchasable options for this product.</p>

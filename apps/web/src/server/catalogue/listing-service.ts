@@ -16,6 +16,7 @@
 import { birr, MoneyError } from "@santim/santimpay";
 import { prisma } from "../db.js";
 import { logger } from "../observability/logger.js";
+import { enqueueBackInStockCheck } from "./back-in-stock-service.js";
 
 export class ListingError extends Error {
   override name = "ListingError";
@@ -248,8 +249,14 @@ export async function updateVariant(sellerId: string, variantId: string, input: 
     }
     // Absolute set, not a delta — this is a seller correcting their own
     // stock count, not a reservation/sale event (those go through
-    // reservation.ts's atomic UPDATE, never through this path).
-    await prisma.inventory.update({ where: { variantId }, data: { onHand: input.onHand } });
+    // reservation.ts's atomic UPDATE, never through this path). The
+    // back-in-stock check runs in the SAME transaction as the real
+    // inventory write — side effects through the outbox, never a direct
+    // call outside the transaction that made the state change real.
+    await prisma.$transaction(async (tx) => {
+      await tx.inventory.update({ where: { variantId }, data: { onHand: input.onHand } });
+      await enqueueBackInStockCheck(tx, variantId);
+    });
   }
 
   logger.info("listing.variant_updated", { variantId, sellerId });

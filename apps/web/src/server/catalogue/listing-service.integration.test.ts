@@ -148,6 +148,28 @@ test("updateVariant's onHand is an absolute set, and listSellerProducts only ret
   assert.equal(listA[0]?.id, productA.id);
 });
 
+test("updateVariant restocking a variant from zero enqueues a real back-in-stock check, but a stock correction that stays at zero does not", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const sellerId = await makeSeller(`restock-${suffix}`);
+  const product = await createProduct(sellerId, { ...baseInput(`restock-${suffix}`), onHand: "0" });
+  const owned = await getSellerProduct(sellerId, product.id);
+  const variantId = owned!.variants[0]!.id;
+
+  const buyer = await prisma.user.create({ data: { email: `listing-test-buyer-${suffix}@example.et`, role: "CUSTOMER" } });
+  await prisma.backInStockRequest.create({ data: { userId: buyer.id, variantId } });
+
+  // A correction that leaves it still at zero must not enqueue anything —
+  // enqueueBackInStockCheck's own real availability check, not just "an
+  // onHand write happened at all".
+  await updateVariant(sellerId, variantId, { onHand: 0 });
+  const beforeRestock = await prisma.outboxMessage.findMany({ where: { topic: "variant.restocked" } });
+  assert.equal(beforeRestock.filter((m) => (m.payload as { variantId: string }).variantId === variantId).length, 0);
+
+  await updateVariant(sellerId, variantId, { onHand: 5 });
+  const afterRestock = await prisma.outboxMessage.findMany({ where: { topic: "variant.restocked" } });
+  assert.equal(afterRestock.filter((m) => (m.payload as { variantId: string }).variantId === variantId).length, 1);
+});
+
 test("setProductFeaturedAsAdmin is the only way to mark a product featured — a seller's own updateProduct has no such field", async () => {
   const suffix = Math.random().toString(36).slice(2, 8);
   const sellerId = await makeSeller(`featured-${suffix}`);
@@ -166,6 +188,8 @@ test("setProductFeaturedAsAdmin is the only way to mark a product featured — a
 });
 
 test.after(async () => {
+  await prisma.outboxMessage.deleteMany({ where: { topic: "variant.restocked" } });
+  await prisma.backInStockRequest.deleteMany({ where: { variant: { product: { seller: { slug: { startsWith: "listing-test-" } } } } } });
   await prisma.variant.deleteMany({ where: { product: { seller: { slug: { startsWith: "listing-test-" } } } } });
   await prisma.product.deleteMany({ where: { seller: { slug: { startsWith: "listing-test-" } } } });
   await prisma.seller.deleteMany({ where: { slug: { startsWith: "listing-test-" } } });

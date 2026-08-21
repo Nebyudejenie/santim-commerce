@@ -14,6 +14,7 @@
 import { prisma } from "../db.js";
 import { logger } from "../observability/logger.js";
 import { enqueue } from "../outbox.js";
+import { enqueueBackInStockCheck } from "../catalogue/back-in-stock-service.js";
 
 export class ReturnError extends Error {
   override name = "ReturnError";
@@ -98,6 +99,7 @@ async function applyResolution(
         where: { variantId: request.orderLine.variantId },
         data: { onHand: { increment: request.orderLine.quantity } },
       });
+      await enqueueBackInStockCheck(tx, request.orderLine.variantId);
     }
 
     // Reverse the settlement: the SALE and COMMISSION entries this line

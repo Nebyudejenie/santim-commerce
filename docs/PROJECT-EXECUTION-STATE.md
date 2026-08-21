@@ -753,8 +753,59 @@ proved out this session — do not relax these just because the scope grew)
       (status, fulfilment, birr total, real timestamps) came back exactly
       right in the downloaded CSV; a guest is redirected to
       `/admin/login`, gets no file.
+- [x] **Back-in-stock notifications** — confirmed absent (no model, zero
+      matches anywhere). New `BackInStockRequest`, scoped to a VARIANT not
+      the product — a sold-out size/color is what a real customer is
+      waiting on, not the product as a whole (see AddToCartForm's own
+      per-variant stock display). Wired into BOTH real places inventory
+      increases: a seller's manual correction (`updateVariant`) and a
+      return being approved (`return-service.ts`) — it doesn't matter
+      which source restocked a variant, a waiting customer gets notified
+      either way.
 
-### Current status / where to resume (2026-08-21, commit `495d92e`)
+      A real, non-hypothetical bug was found and fixed BEFORE it shipped,
+      through careful reasoning about the re-arm semantics, not by a
+      failing test surfacing it first: the first draft built each
+      notification's dedupeKey from `request.id` alone. Since `request.id`
+      is stable across a re-arm (a customer re-requesting after already
+      being notified resets `notifiedAt` on the SAME row, per the real
+      `@@unique([userId, variantId])`, rather than creating a second one),
+      that key would collide forever after the FIRST notification and
+      silently swallow every real one after a legitimate re-request — a
+      customer who re-armed would never actually hear back, with no
+      visible error anywhere. Fixed by adding `notificationCount`
+      (incremented on each real notify) to the model and folding it into
+      the dedupeKey, so each notify-cycle gets a genuinely distinct key
+      while staying stable — and therefore still correctly idempotent —
+      within a single cycle's own redeliveries. A dedicated test proves
+      the fix actually works: two full stockout-request-restock cycles
+      for the same customer on the same variant produce two real,
+      distinct notifications, not one.
+
+      `enqueueBackInStockCheck` is deliberately NOT gated on "was this
+      variant exactly zero before this specific update" at either
+      call site — `notifiedAt IS NULL` is the real idempotency guard
+      inside `notifyBackInStock` itself, so an extra enqueue for an
+      unrelated stock bump is at worst a cheap, correctly-no-op'd query,
+      never a duplicate notification; this sidesteps needing to
+      coordinate a consistent "before" snapshot across two structurally
+      different call sites (`updateVariant`'s absolute set vs.
+      `return-service.ts`'s atomic increment).
+
+      New button on the product page when the selected variant is sold
+      out — "Notify me when back in stock" for a signed-in customer who
+      hasn't requested yet, a real "you'll be notified" message for one
+      who already has, a sign-in prompt for a guest. 13 new integration
+      tests across four files (the service itself, the notification
+      creation and its re-arm fix, and the real enqueue wiring at both
+      restock call sites). Full integration suite (147 tests) run three
+      times to rule out flakiness given the scope of this feature — all
+      green. Verified end-to-end over real HTTP with two real signed-in
+      buyers on the same sold-out variant: one who'd already requested
+      saw the confirmation message with no button; one who hadn't saw the
+      real button; a guest saw the sign-in prompt.
+
+### Current status / where to resume (2026-08-21, commit `8c61afc`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
@@ -779,10 +830,13 @@ gap audit against the master mandate's full feature list (the same method
 that found every feature built this session — grep the codebase for what
 a real marketplace needs, don't assume; several rounds of this already
 found wishlist, notifications, seller coupons, product Q&A, bulk CSV
-import/export, and more, each confirmed genuinely absent before being
-built). Bulk CSV import/export for sellers (and, once its `csv.ts` existed,
-admin order export too) was the last identified candidate and is now
-built — no further specific candidate is currently queued. If a specific
+import/export, back-in-stock notifications, and more, each confirmed
+genuinely absent before being built). No further specific candidate is
+currently queued — gift cards / store credit was considered and
+deliberately not pursued: unlike everything built this session, issuing
+one would need a real payment-collection step, the same real-gateway-
+confirmation complexity already blocking seller payouts, not a clean fit
+for this session's "no external dependency" pattern. If a specific
 feature is wanted instead, this file's own per-feature entries above show
 the established pattern to follow: schema (checked for the real
 searchVector migration hazard — see any entry above), service layer with

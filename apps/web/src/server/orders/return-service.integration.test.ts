@@ -137,6 +137,28 @@ test("approving a return restocks inventory, moves the line to RETURNED, and rev
   assert.equal(forThisRequest.length, 1, "approving a return must enqueue exactly one return.resolved message");
 });
 
+test("approving a return that restocks a variant from zero also enqueues a real back-in-stock check", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const { sellerId, buyerId, lineId, variantId } = await makeSellerBuyerOrderLine(suffix);
+
+  // Simulate this being the last unit — it sold out right after this order.
+  await prisma.inventory.update({ where: { variantId }, data: { onHand: 0 } });
+  const waitingBuyer = await prisma.user.create({ data: { email: `return-waiting-${suffix}@example.et`, role: "CUSTOMER" } });
+  await prisma.backInStockRequest.create({ data: { userId: waitingBuyer.id, variantId } });
+
+  await requestReturn(buyerId, lineId, "Wrong size, real reason text.");
+  const request = await prisma.returnRequest.findUniqueOrThrow({ where: { orderLineId: lineId } });
+  await approveReturnAsSeller(sellerId, request.id, "Confirmed, approved.");
+
+  const inventoryAfter = await prisma.inventory.findUniqueOrThrow({ where: { variantId } });
+  assert.equal(inventoryAfter.onHand, 1, "the returned unit really did bring it back from zero");
+
+  const forThisVariant = (await prisma.outboxMessage.findMany({ where: { topic: "variant.restocked" } })).filter(
+    (m) => (m.payload as { variantId: string }).variantId === variantId,
+  );
+  assert.equal(forThisVariant.length, 1, "a return that restocks a variant from zero must enqueue a real back-in-stock check");
+});
+
 test("a seller CANNOT approve a return on another seller's line, even with the real request id", async () => {
   const suffix = Math.random().toString(36).slice(2, 8);
   const { buyerId, lineId } = await makeSellerBuyerOrderLine(suffix);
@@ -190,7 +212,8 @@ test("an admin can approve a return regardless of which seller owns the line", a
 });
 
 test.after(async () => {
-  await prisma.outboxMessage.deleteMany({ where: { topic: "return.resolved" } });
+  await prisma.outboxMessage.deleteMany({ where: { topic: { in: ["return.resolved", "variant.restocked"] } } });
+  await prisma.backInStockRequest.deleteMany({ where: { variant: { product: { slug: { startsWith: "return-test-product-" } } } } });
   await prisma.returnRequest.deleteMany({ where: { order: { orderNumber: { startsWith: "SC-RETURN" } } } });
   await prisma.sellerLedgerEntry.deleteMany({ where: { order: { orderNumber: { startsWith: "SC-RETURN" } } } });
   await prisma.orderLine.deleteMany({ where: { order: { orderNumber: { startsWith: "SC-RETURN" } } } });
@@ -205,6 +228,7 @@ test.after(async () => {
         { email: { startsWith: "return-buyer-" } },
         { email: { startsWith: "return-stranger-" } },
         { email: { startsWith: "return-admin-" } },
+        { email: { startsWith: "return-waiting-" } },
       ],
     },
   });

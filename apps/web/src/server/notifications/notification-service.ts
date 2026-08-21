@@ -137,6 +137,55 @@ export async function notifyQuestionAnswered(questionId: string): Promise<void> 
   });
 }
 
+/**
+ * Notifies every real customer with a real, still-pending
+ * BackInStockRequest for this variant. Not built on `createOnce`: unlike
+ * every other notifyX above (one recipient, one dedupeKey), this fans out
+ * to potentially many recipients, and each one's dedupeKey has to be
+ * derived from a per-recipient counter that's only known AFTER that
+ * recipient's own row is updated — see BackInStockRequest's own comment
+ * on why `notificationCount`, not `id` alone, has to be part of the key.
+ */
+export async function notifyBackInStock(variantId: string): Promise<void> {
+  const variant = await prisma.variant.findUnique({
+    where: { id: variantId },
+    include: {
+      inventory: true,
+      product: { select: { title: true, slug: true } },
+    },
+  });
+  if (!variant || !variant.inventory || variant.inventory.onHand - variant.inventory.reserved <= 0) return;
+
+  const pending = await prisma.backInStockRequest.findMany({
+    where: { variantId, notifiedAt: null },
+    select: { id: true, userId: true },
+  });
+
+  for (const request of pending) {
+    await prisma.$transaction(async (tx) => {
+      const updated = await tx.backInStockRequest.update({
+        where: { id: request.id },
+        data: { notifiedAt: new Date(), notificationCount: { increment: 1 } },
+      });
+      try {
+        await tx.notification.create({
+          data: {
+            userId: request.userId,
+            type: "BACK_IN_STOCK",
+            title: `${variant.product.title} is back in stock`,
+            body: `"${variant.product.title}" (${variant.title}) is available again.`,
+            link: `/products/${variant.product.slug}`,
+            dedupeKey: `back-in-stock:${request.id}:${updated.notificationCount}`,
+          },
+        });
+      } catch (error) {
+        if (!isUniqueViolation(error)) throw error;
+        // Already notified this exact cycle — a redelivered outbox message, not a bug.
+      }
+    });
+  }
+}
+
 export async function listNotificationsForUser(userId: string, take = 50) {
   return prisma.notification.findMany({ where: { userId }, orderBy: { createdAt: "desc" }, take });
 }

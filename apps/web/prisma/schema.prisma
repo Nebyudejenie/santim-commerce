@@ -265,6 +265,7 @@ model Variant {
   cartLines    CartLine[]
   orderLines   OrderLine[]
   reservations InventoryReservation[]
+  backInStockRequests BackInStockRequest[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -482,6 +483,40 @@ model RecentlyViewed {
   @@map("recently_viewed")
 }
 
+/// Scoped to a VARIANT, not the product — a sold-out size/color is what a
+/// real customer is actually waiting on (see AddToCartForm's own
+/// per-variant stock display), not the product as a whole.
+///
+/// `notifiedAt` doubles as the idempotency guard AND the re-arm mechanism:
+/// once set, back-in-stock-service.ts's notify function skips this row —
+/// a customer gets notified exactly once per real restock they asked
+/// about, never spammed by every inventory update after the first. A
+/// customer who wants ANOTHER heads-up for a later stockout re-requests,
+/// which resets `notifiedAt` back to null rather than creating a second
+/// row — see the real `@@unique([userId, variantId])` below.
+model BackInStockRequest {
+  id        String  @id @default(cuid())
+  userId    String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  variantId String
+  variant   Variant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  notifiedAt DateTime?
+  /// Incremented each real notify — NOT just a counter for display.
+  /// `id` alone is stable across a re-arm cycle (create-or-update on the
+  /// same @@unique row), so a dedupeKey built from `id` alone would
+  /// collide forever after the FIRST notification and silently swallow
+  /// every real notification after a re-arm. This field makes each
+  /// notify-cycle's dedupeKey genuinely distinct while staying stable
+  /// (and therefore still idempotent) within a single cycle's redeliveries.
+  notificationCount Int      @default(0)
+  createdAt         DateTime @default(now())
+
+  @@unique([userId, variantId])
+  @@index([variantId, notifiedAt])
+  @@map("back_in_stock_requests")
+}
+
 model Collection {
   id          String  @id @default(cuid())
   slug        String  @unique
@@ -529,6 +564,7 @@ model User {
   couponRedemptions CouponRedemption[]
   wishlistItems WishlistItem[]
   recentlyViewed RecentlyViewed[]
+  backInStockRequests BackInStockRequest[]
   notifications Notification[]
   questionsAsked ProductQuestion[] @relation("QuestionsAsked")
 
@@ -1054,6 +1090,7 @@ enum NotificationType {
   RETURN_APPROVED
   RETURN_REJECTED
   QUESTION_ANSWERED
+  BACK_IN_STOCK
 }
 
 /// At most one shipping label per order — `orderId` is `@unique`, not just

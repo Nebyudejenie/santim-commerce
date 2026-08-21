@@ -16,6 +16,7 @@ import {
   listNotificationsForUser,
   markAllAsRead,
   markAsRead,
+  notifyBackInStock,
   notifyOrderLineFulfilled,
   notifyOrderPaid,
   notifyOrderPaymentFailed,
@@ -167,6 +168,90 @@ test("notifyReturnResolved creates the right notification for APPROVED vs REJECT
   assert.equal(list[0]!.type, "RETURN_APPROVED");
 });
 
+test("notifyBackInStock notifies every real pending requester for a variant that's genuinely available again", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const { variantId } = await makeSellerWithProduct(suffix);
+  await prisma.inventory.create({ data: { variantId, onHand: 5, reserved: 0 } });
+  const requesterA = await makeBuyer(`${suffix}-a`);
+  const requesterB = await makeBuyer(`${suffix}-b`);
+  await prisma.backInStockRequest.create({ data: { userId: requesterA, variantId } });
+  await prisma.backInStockRequest.create({ data: { userId: requesterB, variantId } });
+
+  await notifyBackInStock(variantId);
+
+  const listA = await listNotificationsForUser(requesterA);
+  const listB = await listNotificationsForUser(requesterB);
+  assert.equal(listA.length, 1);
+  assert.equal(listA[0]!.type, "BACK_IN_STOCK");
+  assert.equal(listB.length, 1);
+
+  const requestA = await prisma.backInStockRequest.findFirstOrThrow({ where: { userId: requesterA, variantId } });
+  assert.ok(requestA.notifiedAt, "the request row must record that it was actually notified");
+  assert.equal(requestA.notificationCount, 1);
+});
+
+test("notifyBackInStock does not notify a request for a variant that's still genuinely out of stock", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const { variantId } = await makeSellerWithProduct(suffix);
+  await prisma.inventory.create({ data: { variantId, onHand: 0, reserved: 0 } });
+  const requesterId = await makeBuyer(suffix);
+  await prisma.backInStockRequest.create({ data: { userId: requesterId, variantId } });
+
+  await notifyBackInStock(variantId);
+
+  const list = await listNotificationsForUser(requesterId);
+  assert.equal(list.length, 0, "a variant that's still at zero availability must never trigger a real notification");
+});
+
+test("notifyBackInStock skips an already-notified request — real redelivery idempotency, no duplicate notification", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const { variantId } = await makeSellerWithProduct(suffix);
+  await prisma.inventory.create({ data: { variantId, onHand: 5, reserved: 0 } });
+  const requesterId = await makeBuyer(suffix);
+  await prisma.backInStockRequest.create({ data: { userId: requesterId, variantId } });
+
+  await notifyBackInStock(variantId);
+  await notifyBackInStock(variantId); // simulates a redelivered "variant.restocked" outbox message
+
+  const list = await listNotificationsForUser(requesterId);
+  assert.equal(list.length, 1, "a redelivered restock event must not double-notify the same real request");
+});
+
+// This is the specific bug this session found and fixed BEFORE it shipped:
+// an earlier draft built each notification's dedupeKey from request.id
+// alone. Since request.id is stable across a re-arm (create-or-update on
+// the same @@unique([userId, variantId]) row), that key would collide
+// forever after the FIRST notification and silently swallow every real
+// one after a customer legitimately re-requested for a later stockout.
+// notificationCount, incremented on each real notify, is what makes each
+// cycle's key genuinely distinct — this test proves the fix actually
+// works, not just that the reasoning sounds right.
+test("a customer who re-requests after being notified gets a real second notification on the next real restock", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const { variantId } = await makeSellerWithProduct(suffix);
+  await prisma.inventory.create({ data: { variantId, onHand: 0, reserved: 0 } });
+  const requesterId = await makeBuyer(suffix);
+
+  // First stockout cycle: request, restock, get notified.
+  await prisma.backInStockRequest.create({ data: { userId: requesterId, variantId } });
+  await prisma.inventory.update({ where: { variantId }, data: { onHand: 3 } });
+  await notifyBackInStock(variantId);
+  assert.equal((await listNotificationsForUser(requesterId)).length, 1);
+
+  // Sells out again, customer re-requests, a second real restock happens.
+  await prisma.inventory.update({ where: { variantId }, data: { onHand: 0 } });
+  await prisma.backInStockRequest.update({ where: { userId_variantId: { userId: requesterId, variantId } }, data: { notifiedAt: null } });
+  await prisma.inventory.update({ where: { variantId }, data: { onHand: 4 } });
+  await notifyBackInStock(variantId);
+
+  const list = await listNotificationsForUser(requesterId);
+  const backInStockNotifications = list.filter((n) => n.type === "BACK_IN_STOCK");
+  assert.equal(backInStockNotifications.length, 2, "the re-armed request must produce a real SECOND notification, not be silently swallowed");
+
+  const request = await prisma.backInStockRequest.findFirstOrThrow({ where: { userId: requesterId, variantId } });
+  assert.equal(request.notificationCount, 2);
+});
+
 test("markAsRead only affects the real owner's own notification, and markAllAsRead clears every unread one", async () => {
   const suffix = Math.random().toString(36).slice(2, 8);
   const userId = await makeBuyer(suffix);
@@ -197,9 +282,11 @@ test("markAsRead only affects the real owner's own notification, and markAllAsRe
 
 test.after(async () => {
   await prisma.notification.deleteMany({ where: { user: { email: { startsWith: "notif-" } } } });
+  await prisma.backInStockRequest.deleteMany({ where: { variant: { product: { slug: { startsWith: "notif-test-" } } } } });
   await prisma.returnRequest.deleteMany({ where: { order: { orderNumber: { startsWith: "SC-NOTIF-" } } } });
   await prisma.orderLine.deleteMany({ where: { order: { orderNumber: { startsWith: "SC-NOTIF-" } } } });
   await prisma.order.deleteMany({ where: { orderNumber: { startsWith: "SC-NOTIF-" } } });
+  await prisma.inventory.deleteMany({ where: { variant: { product: { slug: { startsWith: "notif-test-" } } } } });
   await prisma.variant.deleteMany({ where: { product: { slug: { startsWith: "notif-test-" } } } });
   await prisma.product.deleteMany({ where: { slug: { startsWith: "notif-test-" } } });
   await prisma.seller.deleteMany({ where: { slug: { startsWith: "notif-test-seller-" } } });

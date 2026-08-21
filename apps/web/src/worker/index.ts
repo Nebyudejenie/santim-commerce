@@ -34,6 +34,7 @@ import { registry, reservationsExpiredTotal, stuckPaymentsGauge } from "../serve
 import { purgeExpiredSessions } from "../server/auth/session-store.js";
 import { createLedgerEntriesForOrder } from "../server/orders/settlement-service.js";
 import {
+  notifyBackInStock,
   notifyOrderLineFulfilled,
   notifyOrderPaid,
   notifyOrderPaymentFailed,
@@ -249,6 +250,9 @@ async function deliver(topic: string, payload: unknown): Promise<void> {
   } else if (topic === "question.answered") {
     const { questionId } = payload as { questionId: string };
     await notifyQuestionAnswered(questionId);
+  } else if (topic === "variant.restocked") {
+    const { variantId } = payload as { variantId: string };
+    await notifyBackInStock(variantId);
   }
   logger.info("outbox.delivered", { topic, payload });
 }

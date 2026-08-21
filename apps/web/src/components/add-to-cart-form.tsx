@@ -1,7 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState, useMemo, useState } from "react";
 import { addToCartAction, type CartActionState } from "@/server/actions/cart-actions";
+import { requestBackInStockAction, type BackInStockActionState } from "@/server/actions/back-in-stock-actions";
 import { Money } from "./money";
 
 export interface VariantOption {
@@ -13,6 +15,7 @@ export interface VariantOption {
 }
 
 const INITIAL_STATE: CartActionState = { ok: false };
+const INITIAL_BACK_IN_STOCK_STATE: BackInStockActionState = { ok: false };
 
 /**
  * Client component: variant selection needs instant feedback (stock note,
@@ -20,16 +23,34 @@ const INITIAL_STATE: CartActionState = { ok: false };
  * sluggish. The actual mutation still goes through the Server Action —
  * this component only owns which variant is currently selected.
  */
-export function AddToCartForm({ variants }: { variants: VariantOption[] }) {
+export function AddToCartForm({
+  variants,
+  signedIn = false,
+  requestedVariantIds = [],
+}: {
+  variants: VariantOption[];
+  /** Whether the current viewer is signed in — the back-in-stock button
+   * needs an account, same convention as wishlist/notifications. */
+  signedIn?: boolean;
+  /** Variant ids this viewer has already requested a real, still-pending
+   * back-in-stock notification for. */
+  requestedVariantIds?: readonly string[];
+}) {
   const optionKey = useMemo(() => Object.keys(variants[0]?.options ?? {})[0] ?? "Option", [variants]);
   const [selectedId, setSelectedId] = useState<string | undefined>(
     variants.find((v) => v.available > 0)?.id ?? variants[0]?.id,
   );
   const [state, formAction, pending] = useActionState(addToCartAction, INITIAL_STATE);
+  const [backInStockState, backInStockFormAction, backInStockPending] = useActionState(
+    requestBackInStockAction,
+    INITIAL_BACK_IN_STOCK_STATE,
+  );
 
   const selected = variants.find((v) => v.id === selectedId);
+  const alreadyRequested = selected ? requestedVariantIds.includes(selected.id) : false;
 
   return (
+    <>
     <form action={formAction}>
       <input type="hidden" name="variantId" value={selectedId ?? ""} />
       <input type="hidden" name="quantity" value="1" />
@@ -93,5 +114,28 @@ export function AddToCartForm({ variants }: { variants: VariantOption[] }) {
         {pending ? "Adding…" : selected?.available === 0 ? "Out of stock" : "Add to bag"}
       </button>
     </form>
+
+    {selected && selected.available === 0 && (
+      <div style={{ marginTop: "var(--space-3)" }}>
+        {!signedIn ? (
+          <p className="form-hint">
+            <Link href="/login">Sign in</Link> to get notified when this is back in stock.
+          </p>
+        ) : alreadyRequested || backInStockState.ok ? (
+          <p className="form-hint">{backInStockState.message ?? "We'll notify you when this is back in stock."}</p>
+        ) : (
+          <form action={backInStockFormAction}>
+            <input type="hidden" name="variantId" value={selected.id} />
+            {backInStockState.message && !backInStockState.ok && (
+              <p className="form-hint form-hint--error">{backInStockState.message}</p>
+            )}
+            <button type="submit" className="btn btn--secondary btn-sm" disabled={backInStockPending}>
+              {backInStockPending ? "…" : "Notify me when back in stock"}
+            </button>
+          </form>
+        )}
+      </div>
+    )}
+    </>
   );
 }
