@@ -723,8 +723,38 @@ proved out this session — do not relax these just because the scope grew)
       writer's quoting logic against real production data, not just
       synthetic unit-test input) — every value matched the seeded product
       exactly; a guest is redirected to `/login`, gets no file.
+- [x] **Admin order export (CSV)** — low marginal cost once `csv.ts`
+      existed for the seller-catalogue feature above, and a real gap: no
+      way for admin/finance to get order data out for reconciliation.
+      New `exportOrdersCsv` (admin-queries.ts) reuses `listOrders`'s exact
+      filter shape with a real, orders-of-magnitude-larger cap (10,000
+      rows, bounded so a runaway export can't tie up a request
+      indefinitely — same reasoning as the CSV import path's own file-size
+      cap). New `GET /admin/orders/export?status=&q=`, preserving
+      whatever filter is currently applied on `/admin/orders` — export the
+      view you're looking at, not always the whole table.
 
-### Current status / where to resume (2026-08-21, commit `6f7dda4`)
+      A real, not hypothetical Next.js gap handled correctly: a co-located
+      `(dashboard)/layout.tsx` wraps PAGE rendering only — a `route.ts`
+      file is never wrapped by a layout even nested in the same segment —
+      so this Route Handler checks its own `requireRole("STAFF")`
+      directly, same discipline as every Server Action in this codebase
+      checking its own authorization rather than trusting a page/layout.
+
+      Scoped its own test to a real, unique order-number search filter
+      rather than an unfiltered export — `exportOrdersCsv` is a
+      marketplace-wide query with no seller scoping, and an unfiltered
+      call would have the same real cross-file interference risk under
+      `node --test`'s concurrent execution that `getBusinessMetrics`
+      already had to work around; filtering by this test's own unique
+      order number sidesteps it entirely rather than reaching for a
+      threshold-bound workaround it didn't need. 1 new integration test.
+      Verified end-to-end over real HTTP: a real order's real figures
+      (status, fulfilment, birr total, real timestamps) came back exactly
+      right in the downloaded CSV; a guest is redirected to
+      `/admin/login`, gets no file.
+
+### Current status / where to resume (2026-08-21, commit `495d92e`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
@@ -748,16 +778,17 @@ If continuing this mandate: the highest-value next step is another honest
 gap audit against the master mandate's full feature list (the same method
 that found every feature built this session — grep the codebase for what
 a real marketplace needs, don't assume; several rounds of this already
-found wishlist, notifications, seller coupons, product Q&A, and more,
-each confirmed genuinely absent before being built). Bulk CSV import/
-export for sellers was identified as a plausible next candidate but not
-yet scoped or built. If a specific feature is wanted instead, this file's
-own per-feature entries above show the established pattern to follow:
-schema (checked for the real searchVector migration hazard — see any
-entry above), service layer with ownership scoping, Server Actions with
-in-action auth, real integration tests, full regression, production
-build, real HTTP E2E verification, then commit/push/watch CI to green
-before moving on.
+found wishlist, notifications, seller coupons, product Q&A, bulk CSV
+import/export, and more, each confirmed genuinely absent before being
+built). Bulk CSV import/export for sellers (and, once its `csv.ts` existed,
+admin order export too) was the last identified candidate and is now
+built — no further specific candidate is currently queued. If a specific
+feature is wanted instead, this file's own per-feature entries above show
+the established pattern to follow: schema (checked for the real
+searchVector migration hazard — see any entry above), service layer with
+ownership scoping, Server Actions with in-action auth, real integration
+tests, full regression, production build, real HTTP E2E verification,
+then commit/push/watch CI to green before moving on.
 
 ## PRODUCTION-READINESS HISTORY (prior mandate, mostly complete)
 

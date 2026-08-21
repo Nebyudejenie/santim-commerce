@@ -18,10 +18,16 @@ export default async function AdminOrdersPage({ searchParams }: Props) {
     search: q,
   });
 
+  const exportParams = new URLSearchParams();
+  if (status) exportParams.set("status", status);
+  if (q) exportParams.set("q", q);
+  const exportHref = `/admin/orders/export${exportParams.toString() ? `?${exportParams.toString()}` : ""}`;
+
   return (
     <div>
       <div className="admin-header">
         <h1>Orders</h1>
+        <Link href={exportHref} className="btn btn--secondary btn-sm">Export CSV</Link>
       </div>
 
       <form className="filter-bar">

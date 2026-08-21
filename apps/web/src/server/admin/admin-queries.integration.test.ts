@@ -9,7 +9,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { PrismaClient } from "@prisma/client";
-import { getBusinessMetrics, listAllProductsForAdmin } from "./admin-queries.ts";
+import { exportOrdersCsv, getBusinessMetrics, listAllProductsForAdmin } from "./admin-queries.ts";
+import { parseCsvWithHeader } from "../catalogue/csv.ts";
 
 const prisma = new PrismaClient();
 
@@ -173,6 +174,37 @@ test("listAllProductsForAdmin sees a DRAFT product a suspended seller's storefro
   assert.equal(all.length, 1, "admin must see a DRAFT product from a SUSPENDED seller — the storefront never would");
   assert.equal(all[0]!.status, "DRAFT");
   assert.equal(all[0]!.featured, false);
+});
+
+// exportOrdersCsv (via listOrders) is a marketplace-wide query with no
+// seller scoping — real risk of cross-file interference under
+// node --test's concurrent execution if the filter matched everything.
+// Searching by this test's own unique order number sidesteps that
+// entirely: the filter itself guarantees only this test's own row can
+// ever match, regardless of what else is running concurrently.
+test("exportOrdersCsv produces a real, correctly quoted CSV for the filtered orders only", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const orderNumber = `SC-ADMETRICS-EXPORT-${suffix}`.toUpperCase();
+  await prisma.order.create({
+    data: {
+      orderNumber,
+      email: "buyer@example.et",
+      phone: "+251900000000",
+      status: "PAID",
+      subtotalSantim: 24_999,
+      totalSantim: 24_999,
+      paidAt: new Date(),
+    },
+  });
+
+  const csv = await exportOrdersCsv({ search: orderNumber });
+  const records = parseCsvWithHeader(csv);
+
+  assert.equal(records.length, 1, "the search filter must scope this export to exactly the one real matching order");
+  assert.equal(records[0]!.orderNumber, orderNumber);
+  assert.equal(records[0]!.status, "PAID");
+  assert.equal(records[0]!.totalBirr, "249.99");
+  assert.ok(records[0]!.paidAt, "a real paidAt timestamp must be present for a PAID order");
 });
 
 test.after(async () => {

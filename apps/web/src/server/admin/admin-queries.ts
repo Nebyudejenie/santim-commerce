@@ -10,6 +10,7 @@
 
 import type { OrderStatus, PaymentStatus } from "@prisma/client";
 import { prisma } from "../db.js";
+import { writeCsv } from "../catalogue/csv.js";
 
 export interface OrderFilter {
   status?: OrderStatus;
@@ -42,6 +43,30 @@ export async function listOrders(filter: OrderFilter, take = 50) {
       paidAt: true,
     },
   });
+}
+
+const ORDER_EXPORT_HEADER = ["orderNumber", "email", "status", "fulfilmentStatus", "totalBirr", "placedAt", "paidAt"] as const;
+// Generous for a real reconciliation export, bounded so a runaway export
+// can never tie up a request indefinitely — same reasoning as the CSV
+// import path's own file-size cap (listing-bulk-service.ts).
+const ORDER_EXPORT_MAX_ROWS = 10_000;
+
+/** Same filter shape as listOrders, real orders-of-magnitude-larger cap —
+ * an admin export needs the real matching set, not just the page-1 view. */
+export async function exportOrdersCsv(filter: OrderFilter): Promise<string> {
+  const orders = await listOrders(filter, ORDER_EXPORT_MAX_ROWS);
+
+  const rows = orders.map((o) => [
+    o.orderNumber,
+    o.email,
+    o.status,
+    o.fulfilmentStatus,
+    (o.totalSantim / 100).toFixed(2),
+    o.placedAt.toISOString(),
+    o.paidAt ? o.paidAt.toISOString() : "",
+  ]);
+
+  return writeCsv(ORDER_EXPORT_HEADER, rows);
 }
 
 export async function getOrderDetail(orderNumber: string) {
