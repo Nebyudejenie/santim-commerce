@@ -4,6 +4,7 @@ import { ProductCard } from "@/components/product-card";
 import { listCollections, listFeaturedProducts } from "@/server/catalogue/catalogue-service";
 import { getSessionUser } from "@/server/auth/session";
 import { listWishlistedProductIds } from "@/server/wishlist/wishlist-service";
+import { listRecentlyViewed } from "@/server/catalogue/recently-viewed-service";
 
 export default async function HomePage() {
   const [featured, collections, user] = await Promise.all([
@@ -12,6 +13,7 @@ export default async function HomePage() {
     getSessionUser(),
   ]);
   const wishlistedIds = user ? await listWishlistedProductIds(user.id) : new Set<string>();
+  const recentlyViewed = user ? await listRecentlyViewed(user.id) : [];
 
   return (
     <>
@@ -70,6 +72,25 @@ export default async function HomePage() {
           ))}
         </div>
       </section>
+
+      {recentlyViewed.length > 0 && (
+        <section className="container" style={{ marginTop: "var(--space-9)", marginBottom: "var(--space-9)" }}>
+          <div className="section-head">
+            <h2>Recently viewed</h2>
+          </div>
+          <div className="product-grid">
+            {recentlyViewed.map((rv, i) => (
+              <ProductCard
+                key={rv.product.id}
+                product={rv.product}
+                index={i}
+                signedIn={Boolean(user)}
+                wishlisted={wishlistedIds.has(rv.product.id)}
+              />
+            ))}
+          </div>
+        </section>
+      )}
     </>
   );
 }

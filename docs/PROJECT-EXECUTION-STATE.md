@@ -601,6 +601,37 @@ rather than inventing busywork.
       `/admin/products`; search correctly filters to a match and correctly
       shows the empty state for a non-match; a guest is redirected to
       `/admin/login`.
+- [x] **Recently viewed products** — confirmed absent (no model, zero
+      matches anywhere). New `RecentlyViewed`, signed-in users only —
+      matching the established convention this session (wishlist,
+      notifications) that engagement/tracking features need an account;
+      there's no cookie-based guest tracking. `recordView` is a deliberate,
+      real exception to "GET requests should be side-effect-free" —
+      recording a page view is a universal, accepted exception across the
+      real web, and the write is a single fast upsert on a real
+      `@@unique([userId, productId])` constraint: a repeat view updates
+      `viewedAt` in place, it never grows an unbounded per-view log.
+
+      A real, non-hypothetical ordering bug was caught and fixed before it
+      shipped: `viewedAt` is millisecond-precision, and two views (a fast
+      double-click, a prefetch) can land in the same millisecond, making
+      "most recent first" non-deterministic on a tie. Fixed by adding `id`
+      (a cuid, real-monotonically-increasing) as a secondary sort key —
+      verified the resulting test suite stays consistently green across 3
+      repeated runs, not just a single lucky pass.
+
+      Filtered to currently-visible products only (reuses catalogue-
+      service.ts's `VISIBLE_PRODUCT_WHERE`) — the opposite choice from
+      wishlist, deliberately: wishlist keeps showing an unavailable item
+      because saving it was a real intentional signal, but a passively
+      recorded view of something no longer buyable isn't worth surfacing.
+      New homepage "Recently viewed" section, reusing the same `ProductCard`
+      wishlist/grid-button wiring already built this session. 5 new
+      integration tests. Verified end-to-end over real HTTP by actually
+      visiting two real product pages in sequence (not pre-seeded rows —
+      exercising the real PDP write path) and confirming the homepage
+      correctly showed the second-viewed product first; a guest sees no
+      such section at all.
 
 ### Working discipline for this mandate (carried over from what already
 proved out this session — do not relax these just because the scope grew)

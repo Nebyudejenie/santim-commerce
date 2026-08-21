@@ -18,6 +18,8 @@ import { isWishlisted } from "@/server/wishlist/wishlist-service";
 import { WishlistButton } from "@/components/wishlist-button";
 import { listQuestionsForProduct } from "@/server/reviews/product-qa-service";
 import { AskQuestionForm } from "@/components/ask-question-form";
+import { recordView } from "@/server/catalogue/recently-viewed-service";
+import { logger } from "@/server/observability/logger";
 
 interface Props {
   params: Promise<{ slug: string }>;
@@ -61,6 +63,18 @@ export default async function ProductPage({ params }: Props) {
   // Optional auth — the PDP itself is public, review-writing eligibility is
   // just an extra check for whoever (if anyone) is currently signed in.
   const user = await getSessionUser();
+
+  // Best-effort, never blocks or breaks the page — see
+  // recently-viewed-service.ts's own comment on why a GET-time write is a
+  // deliberate, accepted exception here.
+  if (user) {
+    try {
+      await recordView(user.id, product.id);
+    } catch (error) {
+      logger.error("recently_viewed.record_failed", { userId: user.id, productId: product.id, error: (error as Error).message });
+    }
+  }
+
   const [rating, reviews, alreadyReviewed, eligibleLine, alreadyWishlisted, questions] = await Promise.all([
     getProductRating(product.id),
     listProductReviews(product.id),

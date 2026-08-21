@@ -185,6 +185,7 @@ model Product {
   collections CollectionProduct[]
   reviews     ProductReview[]
   wishlistedBy WishlistItem[]
+  recentlyViewedBy RecentlyViewed[]
   questions   ProductQuestion[]
 
   // SEO
@@ -461,6 +462,26 @@ model WishlistItem {
   @@map("wishlist_items")
 }
 
+/// One row per (user, product) they've ever viewed, `viewedAt` overwritten
+/// on every repeat view — an upsert, never an appended history, the same
+/// "toggle, not a growing log" shape as WishlistItem's own unique
+/// constraint. Signed-in users only, matching the established convention
+/// in this codebase (wishlist, notifications) that engagement/tracking
+/// features need an account; there's no cookie-based guest tracking here.
+model RecentlyViewed {
+  id        String  @id @default(cuid())
+  userId    String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  viewedAt DateTime @default(now())
+
+  @@unique([userId, productId])
+  @@index([userId, viewedAt])
+  @@map("recently_viewed")
+}
+
 model Collection {
   id          String  @id @default(cuid())
   slug        String  @unique
@@ -507,6 +528,7 @@ model User {
   returnRequests ReturnRequest[]
   couponRedemptions CouponRedemption[]
   wishlistItems WishlistItem[]
+  recentlyViewed RecentlyViewed[]
   notifications Notification[]
   questionsAsked ProductQuestion[] @relation("QuestionsAsked")
 
