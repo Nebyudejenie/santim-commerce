@@ -7,7 +7,7 @@
 import type { UserRole } from "@prisma/client";
 import { prisma } from "../db.js";
 import { hashPassword, needsRehash, verifyPassword } from "./password.js";
-import { createSession, destroySession } from "./session.js";
+import { createSession, destroyAllSessions, destroySession } from "./session.js";
 import { logger } from "../observability/logger.js";
 
 export class AuthError extends Error {
@@ -97,6 +97,37 @@ export async function login(input: LoginInput): Promise<AuthenticatedUser> {
 
 export async function logout(): Promise<void> {
   await destroySession();
+}
+
+/**
+ * Self-service password change for an already-authenticated user —
+ * distinct from password-reset-service.ts's admin-assisted RECOVERY flow
+ * for a user who's locked out. No enumeration concern here the way
+ * login() has: the caller already proved who they are via a real session
+ * (requireUser(), enforced at the Server Action), so there's no "which
+ * email exists" question to protect against.
+ *
+ * Same real security requirement as the reset flow: a successful change
+ * destroys EVERY existing session, this one included, and the caller
+ * re-authenticates via a fresh login — the one existing precedent for
+ * "something just changed the password" in this codebase.
+ */
+export async function changePassword(userId: string, currentPassword: string, newPassword: string): Promise<void> {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user || !user.passwordHash) {
+    throw new AuthError("Account not found.");
+  }
+
+  const valid = await verifyPassword(currentPassword, user.passwordHash);
+  if (!valid) {
+    throw new AuthError("Current password is incorrect.");
+  }
+
+  const newHash = await hashPassword(newPassword); // throws PasswordError on weak input
+  await prisma.user.update({ where: { id: userId }, data: { passwordHash: newHash } });
+  await destroyAllSessions(userId);
+
+  logger.info("auth.password_changed", { userId });
 }
 
 /**

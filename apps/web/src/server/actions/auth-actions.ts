@@ -3,8 +3,9 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
-import { AuthError, hasRole, login, logout, register } from "../auth/auth-service.js";
+import { AuthError, changePassword, hasRole, login, logout, register } from "../auth/auth-service.js";
 import { destroySession } from "../auth/session.js";
+import { requireUser } from "../auth/guard.js";
 import { PasswordError } from "../auth/password.js";
 import { resetPasswordWithToken, PasswordResetError } from "../auth/password-reset-service.js";
 import { mergeGuestCartIntoUser } from "../cart/cart-service.js";
@@ -150,6 +151,36 @@ export async function resetPasswordAction(
       return { ok: false, error: error.message };
     }
     logger.error("auth.reset_password_action_failed", { error: (error as Error).message });
+    return { ok: false, error: "Something went wrong. Please try again." };
+  }
+
+  redirect("/login");
+}
+
+/**
+ * Self-service change for an already-signed-in user — see
+ * auth-service.ts's `changePassword` for why this is a separate path from
+ * the admin-assisted recovery flow. `requireUser()` is called here, not
+ * just relied on via the page that renders the form, for the same reason
+ * every other Server Action in this codebase does — see admin-actions.ts's
+ * module comment on why a Server Action is its own independently-
+ * invokable endpoint.
+ */
+export async function changePasswordAction(
+  _prev: AuthFormState,
+  formData: FormData,
+): Promise<AuthFormState> {
+  const user = await requireUser();
+  const currentPassword = String(formData.get("currentPassword") ?? "");
+  const newPassword = String(formData.get("newPassword") ?? "");
+
+  try {
+    await changePassword(user.id, currentPassword, newPassword);
+  } catch (error) {
+    if (error instanceof AuthError || error instanceof PasswordError) {
+      return { ok: false, error: error.message };
+    }
+    logger.error("auth.change_password_action_failed", { userId: user.id, error: (error as Error).message });
     return { ok: false, error: "Something went wrong. Please try again." };
   }
 

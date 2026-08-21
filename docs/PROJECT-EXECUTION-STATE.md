@@ -996,12 +996,46 @@ proved out this session — do not relax these just because the scope grew)
       `/admin/login`. Login page now points a locked-out user toward
       support rather than offering no path at all.
 
-### Current status / where to resume (2026-08-21, commit `b7b0e32`)
+- [x] **Self-service password change** — confirmed absent alongside the
+      admin-assisted recovery flow above: an already-signed-in user who
+      simply wants to rotate their password (not locked out, just wants
+      to change it) had no path either. Unlike account recovery, this one
+      needs no external email delivery at all — the user is already
+      authenticated, so it's fully self-service and was built completely,
+      no honest-scoping workaround needed.
+
+      `changePassword(userId, currentPassword, newPassword)` in
+      auth-service.ts, alongside `register`/`login`: verifies the REAL
+      current password first (a session being open must not be enough on
+      its own to silently rotate the credential — the same reasoning a
+      bank or GitHub applies), then hashes and sets the new one. On
+      success it calls the exact same `destroyAllSessions` used by
+      password-reset-service.ts's recovery flow — changing the password
+      kills every existing session, this one included, and the user
+      re-authenticates via a fresh login. No enumeration concern applies
+      here the way it does in `login()`: the caller already proved who
+      they are via a real session before this ever runs.
+
+      New `/account/security` page and `ChangePasswordForm`, linked from
+      the account page. 3 new integration tests (correct current password
+      really rotates the hash; a wrong current password is rejected and
+      changes nothing; a successful change destroys every session). Full
+      regression suite (72 unit, 173 integration) and a production build
+      pass. Verified end-to-end over real HTTP with the same Server-Action
+      form-POST replication technique as the reset flow: a real customer
+      login, a wrong-current-password attempt correctly rejected, a real
+      successful change, and then — the strongest possible proof of the
+      session-kill property — the SAME cookie that made the change request
+      immediately redirected to `/login` on its very next request rather
+      than reaching `/account`. A fresh login with the new password was
+      then confirmed to work.
+
+### Current status / where to resume (2026-08-21, commit `PENDING`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
 watched to a real, uncontested completion, per this session's own working
-discipline above. Full regression suite (typecheck, lint, 72 unit, 170
+discipline above. Full regression suite (typecheck, lint, 72 unit, 173
 integration) and a production build all pass cleanly as of this commit.
 
 Deliberately still out of scope, not oversights — both genuinely blocked
@@ -1030,7 +1064,7 @@ a real marketplace needs, don't assume; several rounds of this already
 found wishlist, notifications, seller coupons, product Q&A, bulk CSV
 import/export, back-in-stock notifications, admin payout recording,
 customer order cancellation, guest order lookup, admin-assisted password
-reset, and
+reset, self-service password change, and
 more, each confirmed genuinely absent before being built). No further
 specific candidate is
 currently queued — gift cards / store credit was considered and
