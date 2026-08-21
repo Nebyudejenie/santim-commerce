@@ -2247,7 +2247,7 @@ proved out this session — do not relax these just because the scope grew)
       never exposes it anywhere. All seeded data and verify scripts
       cleaned up afterward.
 
-### Current status / where to resume (2026-08-22, commit `PENDING`)
+### Current status / where to resume (2026-08-22, commit `d24f3aa`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
