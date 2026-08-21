@@ -7,6 +7,7 @@ import { Money } from "@/components/money";
 import { StatusPill } from "@/components/status-pill";
 import { ProductImage } from "@/components/product-image";
 import { RequestReturnButton } from "@/components/request-return-button";
+import { CancelOrderButton } from "@/components/cancel-order-button";
 
 export const metadata: Metadata = { title: "Order details" };
 export const dynamic = "force-dynamic";
@@ -40,6 +41,10 @@ export default async function AccountOrderDetailPage({ params }: Props) {
       <p style={{ color: "var(--fg-muted)", marginBottom: "var(--space-6)" }}>
         Placed {order.placedAt.toISOString().slice(0, 10)}
       </p>
+
+      {(order.status === "PENDING_PAYMENT" || order.status === "PAID") && order.fulfilmentStatus === "UNFULFILLED" && (
+        <CancelOrderButton orderNumber={order.orderNumber} />
+      )}
 
       {order.lines.map((line) => (
         <div key={line.id} className="cart-line">

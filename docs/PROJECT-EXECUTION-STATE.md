@@ -846,8 +846,51 @@ proved out this session — do not relax these just because the scope grew)
       seller's real owed amount (299.70 ETB, computed from a real sale
       minus real 10% commission) rendered exactly right; a guest is
       redirected to `/admin/login`.
+- [x] **Customer order cancellation** — confirmed absent from the customer
+      side (zero matches anywhere), even though `state-machine.ts` had
+      declared `PENDING_PAYMENT -> CANCELLED` and `PAID -> CANCELLED` as
+      real, legal transitions since the very first version of this
+      codebase. Nothing had ever exercised them from a customer action.
 
-### Current status / where to resume (2026-08-21, commit `e2a2796`)
+      Only legal while `Order.fulfilmentStatus` is still UNFULFILLED — the
+      moment ANY seller has shipped ANY line, the customer must use the
+      existing returns flow instead, which operates per-line rather than
+      cancelling the whole order outright. A PAID order's reversal mirrors
+      return-service.ts's own REFUND-ledger pattern exactly: the real
+      SALE/COMMISSION entries stay immutable, a REFUND entry cancels out
+      the net — and restocking a variant back from zero runs the SAME
+      real back-in-stock check return-service.ts and listing-service.ts
+      already trigger, verified directly with a waiting requester
+      actually getting enqueued.
+
+      A real, dangerous bug was caught by this feature's own integration
+      test, not by inspection: the first draft used `state-machine.ts`'s
+      `assertOrderTransition` as its guard, whose "from === to is a silent
+      no-op" rule is correct for webhook reprocessing (a redelivered
+      callback that already applied must never error) but wrong for a
+      user-initiated action. On a SECOND cancel attempt against an
+      ALREADY-cancelled order, `CANCELLED -> CANCELLED` short-circuited
+      past that check without throwing, and the atomic conditional update
+      further down (which only verifies status hasn't changed since the
+      read, not which status it legitimately started from) happily
+      "reaffirmed" the same status and proceeded to double-restock real
+      inventory. Fixed with an explicit status allowlist before the
+      transaction even opens, replacing the state-machine helper entirely
+      for this path. The "cancel twice" test failed against the original
+      code and passes against the fix — the bug was real, not
+      hypothetical.
+
+      New `CancelOrderButton` on `/account/orders/[orderNumber]`, shown
+      only when the order is genuinely still cancellable — gated on both
+      `Order.status` and `Order.fulfilmentStatus`, matching the service's
+      own two real checks rather than a looser client-side guess. 6 new
+      integration tests. Full integration suite (158 tests) run three
+      times given this touches the payment-critical order/inventory/
+      settlement path — all green. Verified end-to-end over real HTTP: a
+      genuinely cancellable order shows the button; an already-shipped
+      order (same buyer, real FULFILLED order) correctly does not.
+
+### Current status / where to resume (2026-08-21, commit `6011bcd`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
@@ -874,7 +917,8 @@ gap audit against the master mandate's full feature list (the same method
 that found every feature built this session — grep the codebase for what
 a real marketplace needs, don't assume; several rounds of this already
 found wishlist, notifications, seller coupons, product Q&A, bulk CSV
-import/export, back-in-stock notifications, admin payout recording, and
+import/export, back-in-stock notifications, admin payout recording,
+customer order cancellation, and
 more, each confirmed genuinely absent before being built). No further
 specific candidate is
 currently queued — gift cards / store credit was considered and
