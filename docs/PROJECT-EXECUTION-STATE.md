@@ -1974,7 +1974,7 @@ proved out this session — do not relax these just because the scope grew)
       their real `/account/wishlist` page shows "Price dropped from ETB
       200.00". All seeded data and verify scripts cleaned up afterward.
 
-### Current status / where to resume (2026-08-22, commit `PENDING`)
+### Current status / where to resume (2026-08-22, commit `b0a598c`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
