@@ -16,12 +16,19 @@
  * E2E instead, not here — same reasoning session-store.ts's own module
  * comment documents for why request-context code can't run standalone
  * under a plain test runner.)
+ *
+ * Also covers `login()`'s brute-force lockout: every interesting case
+ * (recording a failure, tripping the lock, the stale-window reset) throws
+ * BEFORE `login()` ever reaches `createSession()`, so all of it — unlike
+ * a successful login — runs fine under a plain test runner with no
+ * request context needed. Only "a successful login clears the lockout
+ * counter" needs real HTTP, for the same createSession reason above.
  */
 
 import test from "node:test";
 import assert from "node:assert/strict";
 import { PrismaClient } from "@prisma/client";
-import { changePassword, suspendUser, reinstateUser, deleteOwnAccount, AuthError } from "./auth-service.ts";
+import { changePassword, suspendUser, reinstateUser, deleteOwnAccount, login, AuthError } from "./auth-service.ts";
 import { hashPassword, verifyPassword } from "./password.ts";
 import { hashToken } from "./session-store.ts";
 
@@ -69,6 +76,72 @@ test("a successful change destroys every existing session", async () => {
 
   const remaining = await prisma.session.count({ where: { userId: user.id } });
   assert.equal(remaining, 0, "changing the password must kill every session, including the one that made the request");
+});
+
+test("10 wrong-password attempts against a real user lock the account, refusing even a genuinely CORRECT password", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const user = await makeUser(suffix);
+
+  for (let i = 0; i < 9; i++) {
+    await assert.rejects(
+      () => login({ email: user.email, password: "wrong-password" }),
+      (err: unknown) => err instanceof AuthError && /incorrect email or password/i.test(err.message),
+    );
+  }
+  // The 10th failure is what actually trips the lock.
+  await assert.rejects(
+    () => login({ email: user.email, password: "wrong-password" }),
+    (err: unknown) => err instanceof AuthError && /incorrect email or password/i.test(err.message),
+  );
+
+  const attempt = await prisma.loginAttempt.findUniqueOrThrow({ where: { email: user.email } });
+  assert.equal(attempt.failedCount, 10);
+  assert.ok(attempt.lockedUntil && attempt.lockedUntil > new Date());
+
+  // The lockout check runs BEFORE password verification — even the real,
+  // correct password must be refused while locked.
+  await assert.rejects(
+    () => login({ email: user.email, password: "original-password-1" }),
+    (err: unknown) => err instanceof AuthError && /too many failed attempts/i.test(err.message),
+  );
+});
+
+test("the identical lockout applies to a nonexistent email — the enumeration-safe design this feature exists for", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const fakeEmail = `login-lockout-nobody-${suffix}@example.et`;
+
+  for (let i = 0; i < 10; i++) {
+    await assert.rejects(
+      () => login({ email: fakeEmail, password: "whatever" }),
+      (err: unknown) => err instanceof AuthError && /incorrect email or password/i.test(err.message),
+    );
+  }
+
+  // Locked exactly the same way a real account would be — no user row
+  // ever existed for this email, proving the lockout is keyed on the
+  // submitted string, not User.id.
+  await assert.rejects(
+    () => login({ email: fakeEmail, password: "whatever" }),
+    (err: unknown) => err instanceof AuthError && /too many failed attempts/i.test(err.message),
+  );
+
+  await prisma.loginAttempt.deleteMany({ where: { email: fakeEmail } });
+});
+
+test("a failure outside the attempt window resets the count instead of accumulating forever", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const user = await makeUser(suffix);
+
+  // Simulate 9 prior failures from long ago — well outside the 15-minute window.
+  await prisma.loginAttempt.create({
+    data: { email: user.email, failedCount: 9, updatedAt: new Date(Date.now() - 60 * 60_000) },
+  });
+
+  await assert.rejects(() => login({ email: user.email, password: "wrong-password" }), AuthError);
+
+  const attempt = await prisma.loginAttempt.findUniqueOrThrow({ where: { email: user.email } });
+  assert.equal(attempt.failedCount, 1, "a stale failure must not carry forward into a fresh window");
+  assert.equal(attempt.lockedUntil, null, "one fresh failure must never lock on its own");
 });
 
 async function makeCustomer(suffix: string) {
@@ -243,6 +316,7 @@ test("a PENDING seller (no live storefront) can self-delete freely", async () =>
 });
 
 test.after(async () => {
+  await prisma.loginAttempt.deleteMany({ where: { email: { startsWith: "changepw-user-" } } });
   await prisma.session.deleteMany({ where: { user: { email: { startsWith: "changepw-user-" } } } });
   await prisma.user.deleteMany({ where: { email: { startsWith: "changepw-user-" } } });
   await prisma.session.deleteMany({ where: { user: { email: { startsWith: "suspend-user-" } } } });

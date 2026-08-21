@@ -688,6 +688,33 @@ model Session {
   @@map("sessions")
 }
 
+/// Application-level brute-force protection for `login()` — confirmed
+/// absent (P2 in docs/PROJECT-EXECUTION-STATE.md's own audit findings:
+/// "no application-level brute-force lockout, only the edge-level rate
+/// limit... not targeted credential stuffing against one account").
+///
+/// Keyed on the SUBMITTED email string, not `User.id` — deliberately, so
+/// the exact same lockout applies whether or not that email has a real
+/// account. Keying this by User.id instead would create a real
+/// enumeration side-channel: after enough attempts, a REAL email would
+/// start returning a different error ("too many attempts") than a FAKE
+/// one always would (plain "incorrect email or password", since there's
+/// no user row to lock) — silently telling an attacker which emails are
+/// real accounts. Tracking by the raw string closes that gap entirely.
+///
+/// `failedCount`/`lockedUntil` cover both keeping count within a rolling
+/// window (see login()'s own comment on why an old failure resets the
+/// window rather than accumulating forever) and the actual block.
+model LoginAttempt {
+  id          String    @id @default(cuid())
+  email       String    @unique
+  failedCount Int       @default(0)
+  lockedUntil DateTime?
+  updatedAt   DateTime  @updatedAt
+
+  @@map("login_attempts")
+}
+
 /// Admin-issued account-recovery token. Same hash-only-stored discipline as
 /// Session.tokenHash above — the raw token exists only for the instant it's
 /// generated (returned once to the admin who issued it) and in the URL the

@@ -72,15 +72,21 @@ export interface LoginInput {
  * in both cases: without it, "no such user" returns near-instantly while
  * "wrong password" takes ~50-100ms (scrypt's cost), and that gap alone is
  * enough to enumerate accounts even with an identical error message.
+ *
+ * The lockout check runs BEFORE any of that — see `assertNotLockedOut`'s
+ * own comment on why it's keyed by the raw submitted email, not `User.id`.
  */
 export async function login(input: LoginInput): Promise<AuthenticatedUser> {
   const email = normalizeEmail(input.email);
+  await assertNotLockedOut(email);
+
   const user = await prisma.user.findUnique({ where: { email } });
 
   const hashToCheck = user?.passwordHash ?? DUMMY_HASH;
   const valid = await verifyPassword(input.password, hashToCheck);
 
   if (!user || !user.passwordHash || !valid) {
+    await recordLoginFailure(email);
     logger.warn("auth.login_failed", { email });
     throw new AuthError("Incorrect email or password.");
   }
@@ -100,9 +106,56 @@ export async function login(input: LoginInput): Promise<AuthenticatedUser> {
     await prisma.user.update({ where: { id: user.id }, data: { passwordHash: rehashed } });
   }
 
+  await clearLoginAttempts(email);
   await createSession(user.id);
   logger.info("auth.login", { userId: user.id });
   return { id: user.id, role: user.role };
+}
+
+/** A failure this old no longer counts toward a lockout — the point is to
+ * stop a sustained attack, not to permanently penalize someone who mistyped
+ * their password a few times months apart. */
+const ATTEMPT_WINDOW_MS = 15 * 60_000;
+const LOCKOUT_MS = 15 * 60_000;
+const MAX_FAILED_ATTEMPTS = 10;
+
+/**
+ * Confirmed absent before this (see docs/PROJECT-EXECUTION-STATE.md's own
+ * P2 audit finding): the edge rate limit covers volumetric abuse across
+ * many accounts, never a slow, sustained guess against ONE account from
+ * under that threshold. Keyed on the raw submitted email string, not
+ * `User.id` — see `LoginAttempt`'s own schema comment on why keying this
+ * by a real user row would leak which emails have real accounts once
+ * enough attempts accumulate.
+ */
+async function assertNotLockedOut(email: string): Promise<void> {
+  const attempt = await prisma.loginAttempt.findUnique({ where: { email } });
+  if (attempt?.lockedUntil && attempt.lockedUntil > new Date()) {
+    logger.warn("auth.login_locked_out", { email });
+    throw new AuthError("Too many failed attempts. Please try again in a few minutes.");
+  }
+}
+
+async function recordLoginFailure(email: string): Promise<void> {
+  const now = new Date();
+  const existing = await prisma.loginAttempt.findUnique({ where: { email } });
+  const windowExpired = existing && now.getTime() - existing.updatedAt.getTime() > ATTEMPT_WINDOW_MS;
+  const nextCount = !existing || windowExpired ? 1 : existing.failedCount + 1;
+  const lockedUntil = nextCount >= MAX_FAILED_ATTEMPTS ? new Date(now.getTime() + LOCKOUT_MS) : null;
+
+  await prisma.loginAttempt.upsert({
+    where: { email },
+    create: { email, failedCount: nextCount, lockedUntil },
+    update: { failedCount: nextCount, lockedUntil },
+  });
+}
+
+/** Credentials just verified correct — the whole point of tracking
+ * failures is to catch a sustained WRONG-password attack, so a real
+ * success resets the slate the same way it would for any human who just
+ * needed a few tries to remember their own password. */
+async function clearLoginAttempts(email: string): Promise<void> {
+  await prisma.loginAttempt.deleteMany({ where: { email } });
 }
 
 export async function logout(): Promise<void> {

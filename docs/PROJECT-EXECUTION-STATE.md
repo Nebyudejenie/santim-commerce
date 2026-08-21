@@ -1868,12 +1868,59 @@ proved out this session — do not relax these just because the scope grew)
       no further dispute option. All seeded data and verify scripts
       cleaned up afterward.
 
-### Current status / where to resume (2026-08-22, commit `3b02880`)
+- [x] **Application-level login brute-force protection** — closes a
+      standing P2 finding from this project's own earlier security audit
+      ("no application-level brute-force lockout, only the edge-level
+      rate limit... not targeted credential stuffing against one
+      account"). New `LoginAttempt` model, deliberately keyed on the
+      SUBMITTED email STRING, never `User.id` — keying it by a real user
+      row would create a genuine enumeration side-channel: after enough
+      attempts a real email would start returning a distinct "too many
+      attempts" message while a fake one (no row to lock) never could,
+      quietly telling an attacker which emails are real accounts. String-
+      keying closes that: the identical lockout applies whether or not
+      the email exists.
+
+      `login()` now checks `assertNotLockedOut` BEFORE touching
+      `User`/verifying the password at all; a failure calls
+      `recordLoginFailure` (10 failures inside a 15-minute rolling window
+      trips a 15-minute lock; an OLDER failure resets the window instead
+      of accumulating forever); a real success calls
+      `clearLoginAttempts`. Both the customer `/login` and `/admin/login`
+      forms share the exact same `login()` function, so this protects
+      both surfaces for free — matching the P2 note's own "login/register"
+      framing, though `register()` itself was deliberately left out: it
+      has no analogous credential-guessing risk (a new account's password
+      is caller-chosen), and its own spam-signup risk is already covered
+      by the existing edge-level rate limit.
+
+      3 new integration tests (10 real failures lock a real account and
+      refuse even the genuinely correct password afterward; the identical
+      lockout applies to a nonexistent email, proving the enumeration-safe
+      design; a stale failure outside the window resets rather than
+      accumulating). All three run fine under a plain test runner with no
+      request context — the lockout/failure path throws before `login()`
+      ever reaches `createSession()`'s `next/headers` call, the same
+      "request-context-only for the success path" property this file's
+      own module comment already documented for the suspended-user case.
+      Full regression (72 unit, 245 integration, run twice given this
+      touches the shared login path both storefronts depend on) and a
+      production build pass. Real HTTP E2E: 10 real wrong-password POSTs
+      to `/login` against a real seeded user, confirmed the real 11th
+      attempt with the GENUINELY correct password was still refused with
+      "Too many failed attempts," confirmed the identical lock over real
+      HTTP for a fully nonexistent email, confirmed the same shared
+      lockout blocks `/admin/login` too, and confirmed a separate real
+      user succeeding after 3 sub-threshold failures leaves no
+      `LoginAttempt` row behind. All seeded data and verify scripts
+      cleaned up afterward.
+
+### Current status / where to resume (2026-08-22, commit `PENDING`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
 watched to a real, uncontested completion, per this session's own working
-discipline above. Full regression suite (typecheck, lint, 72 unit, 242
+discipline above. Full regression suite (typecheck, lint, 72 unit, 245
 integration) and a production build all pass cleanly as of this commit.
 
 Deliberately still out of scope, not oversights — both genuinely blocked
@@ -1907,8 +1954,8 @@ self-service storefront settings, order delivery notes, seller low-stock
 alerts, compare-at pricing, SEO title/description, self-service account
 deletion, related products, the ProductCard low-stock badge fix, an
 admin audit log, product Q&A moderation, self-service data export, seller order search/filter, customer order search, admin users CSV export, seller vacation mode, seller "new sale" notification, buyer-seller order
-messaging, admin message moderation, return dispute escalation, and
-more, each confirmed genuinely absent before being built). No further
+messaging, admin message moderation, return dispute escalation,
+application-level login brute-force protection, and more, each confirmed genuinely absent before being built). No further
 specific candidate is currently queued — the systematic dead-field
 audit's one remaining finding, `User.emailVerifiedAt`, is confirmed dead
 but correctly out of scope (see the compare-at entry above for why).
@@ -2113,7 +2160,9 @@ limiting, container, K8s manifests, Trivy ignore)
   `auth-actions.ts` directly, confirmed no attempt-counting exists; not
   implemented this pass (a stateful lockout needs careful design to avoid
   becoming its own DoS vector — a bigger, separate decision, not a quick
-  fix). Logged as P2, not fixed.
+  fix). Logged as P2, not fixed at the time this was written — since
+  fixed for login, see the "Application-level login brute-force
+  protection" roadmap entry above.
 - **Container security**: non-root confirmed pre-existing; base image
   pinned to a tag not a digest (P3, debatable tradeoff, not changed); dev
   deps shipping in the image and no HEALTHCHECK — both fixed (#12).
@@ -2143,9 +2192,10 @@ validation against a real cluster, backup/restore) may still surface P1s
 
 ## P2 (important, fix if practical)
 
-- No application-level brute-force protection on login/register (edge
-  rate-limiting now covers volumetric abuse, not targeted credential
-  stuffing against one account). See AUDIT FINDINGS above.
+- ~~No application-level brute-force protection on login/register~~ —
+  FIXED for login (both customer and admin) via the "Application-level
+  login brute-force protection" entry in the roadmap above; register()
+  deliberately left out, see that entry's own reasoning.
 - Known-unmergeable Dependabot PRs left open by design: #9 (Prisma 7),
   #10 (Next.js 16), #14 (TypeScript 7).
 - CSP is conservative (no `script-src`/`style-src` lockdown) — a fuller
