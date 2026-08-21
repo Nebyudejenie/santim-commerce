@@ -27,6 +27,7 @@ import { setProductFeaturedAsAdmin } from "../catalogue/listing-service.js";
 import { recordSellerPayout, SettlementError } from "../orders/settlement-service.js";
 import { issuePasswordResetToken, PasswordResetError } from "../auth/password-reset-service.js";
 import { suspendUser, reinstateUser, AuthError } from "../auth/auth-service.js";
+import { recordAdminAction } from "../admin/audit-log-service.js";
 import { logger } from "../observability/logger.js";
 import { requireRole } from "../auth/guard.js";
 
@@ -49,7 +50,7 @@ export async function resettlePaymentAction(
   _prev: AdminActionState,
   formData: FormData,
 ): Promise<AdminActionState> {
-  await requireRole("STAFF"); // redirects to /admin/login if this fails — see module comment
+  const admin = await requireRole("STAFF"); // redirects to /admin/login if this fails — see module comment
   const merchantTxnId = String(formData.get("merchantTxnId") ?? "");
   const orderNumber = String(formData.get("orderNumber") ?? "");
   if (!merchantTxnId) return { ok: false, message: "Missing transaction id." };
@@ -60,6 +61,14 @@ export async function resettlePaymentAction(
     if (orderNumber) revalidatePath(`/admin/orders/${orderNumber}`);
 
     logger.info("admin.manual_resettle", { merchantTxnId, status: result.status, changed: result.changed });
+    await recordAdminAction({
+      actorUserId: admin.id,
+      actorEmail: admin.email,
+      action: "payment.resettled",
+      targetType: "Payment",
+      targetId: merchantTxnId,
+      metadata: { status: result.status, changed: result.changed, orderNumber },
+    });
 
     return {
       ok: true,
@@ -77,13 +86,20 @@ export async function toggleProductFeaturedAction(
   _prev: AdminActionState,
   formData: FormData,
 ): Promise<AdminActionState> {
-  await requireRole("STAFF");
+  const admin = await requireRole("STAFF");
 
   const productId = String(formData.get("productId") ?? "");
   const featured = formData.get("featured") === "true";
 
   try {
     await setProductFeaturedAsAdmin(productId, featured);
+    await recordAdminAction({
+      actorUserId: admin.id,
+      actorEmail: admin.email,
+      action: featured ? "product.featured" : "product.unfeatured",
+      targetType: "Product",
+      targetId: productId,
+    });
   } catch (error) {
     logger.error("admin.toggle_featured_failed", { productId, error: (error as Error).message });
     return { ok: false, message: "Something went wrong. Please try again." };
@@ -104,7 +120,7 @@ export async function recordSellerPayoutAction(
   _prev: AdminActionState,
   formData: FormData,
 ): Promise<AdminActionState> {
-  await requireRole("STAFF");
+  const admin = await requireRole("STAFF");
 
   const sellerId = String(formData.get("sellerId") ?? "");
   if (!sellerId) return { ok: false, message: "Missing seller." };
@@ -113,6 +129,14 @@ export async function recordSellerPayoutAction(
     const result = await recordSellerPayout(sellerId);
     revalidatePath("/admin/payouts");
     logger.info("admin.payout_recorded", { sellerId, settledSantim: result.settledSantim });
+    await recordAdminAction({
+      actorUserId: admin.id,
+      actorEmail: admin.email,
+      action: "payout.recorded",
+      targetType: "Seller",
+      targetId: sellerId,
+      metadata: { settledSantim: result.settledSantim },
+    });
     return { ok: true, message: `Recorded a payout of ${(result.settledSantim / 100).toFixed(2)} ETB.` };
   } catch (error) {
     if (error instanceof SettlementError) return { ok: false, message: error.message };
@@ -141,6 +165,13 @@ export async function issuePasswordResetTokenAction(
   try {
     const { rawToken } = await issuePasswordResetToken(userId, admin.email);
     logger.info("admin.password_reset_issued", { userId, issuedByAdmin: admin.email });
+    await recordAdminAction({
+      actorUserId: admin.id,
+      actorEmail: admin.email,
+      action: "user.password_reset_issued",
+      targetType: "User",
+      targetId: userId,
+    });
     return { ok: true, resetUrl: `${APP_URL}/reset-password/${rawToken}` };
   } catch (error) {
     if (error instanceof PasswordResetError) return { ok: false, message: error.message };
@@ -169,6 +200,14 @@ export async function suspendUserAction(
     revalidatePath("/admin/users");
     revalidatePath(`/admin/users/${userId}`);
     logger.warn("admin.user_suspended", { userId, suspendedByAdmin: admin.email });
+    await recordAdminAction({
+      actorUserId: admin.id,
+      actorEmail: admin.email,
+      action: "user.suspended",
+      targetType: "User",
+      targetId: userId,
+      metadata: { reason },
+    });
     return { ok: true, message: "Account suspended." };
   } catch (error) {
     if (error instanceof AuthError) return { ok: false, message: error.message };
@@ -181,7 +220,7 @@ export async function reinstateUserAction(
   _prev: AdminActionState,
   formData: FormData,
 ): Promise<AdminActionState> {
-  await requireRole("STAFF");
+  const admin = await requireRole("STAFF");
 
   const userId = String(formData.get("userId") ?? "");
   if (!userId) return { ok: false, message: "Missing user." };
@@ -191,6 +230,13 @@ export async function reinstateUserAction(
     revalidatePath("/admin/users");
     revalidatePath(`/admin/users/${userId}`);
     logger.info("admin.user_reinstated", { userId });
+    await recordAdminAction({
+      actorUserId: admin.id,
+      actorEmail: admin.email,
+      action: "user.reinstated",
+      targetType: "User",
+      targetId: userId,
+    });
     return { ok: true, message: "Account reinstated." };
   } catch (error) {
     if (error instanceof AuthError) return { ok: false, message: error.message };

@@ -28,6 +28,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
           <Link href="/admin/coupons">Coupons</Link>
           <Link href="/admin/payouts">Payouts</Link>
           <Link href="/admin/reconciliation">Reconciliation</Link>
+          <Link href="/admin/audit-log">Audit log</Link>
         </nav>
         <div className="admin-sidebar__user">
           <p className="admin-sidebar__user-email">{user.email}</p>

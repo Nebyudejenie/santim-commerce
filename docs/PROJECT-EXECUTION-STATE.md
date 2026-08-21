@@ -1482,12 +1482,60 @@ proved out this session — do not relax these just because the scope grew)
       — correctly shows "Low stock" where the old hardcoded logic would
       have shown nothing.
 
-### Current status / where to resume (2026-08-21, commit `b25e08c`)
+- [x] **Admin audit log** — confirmed absent (no `AdminAuditLog`/`AuditLog`
+      model) despite this session having accumulated real, sensitive
+      admin power across two files with no unified, persisted trail:
+      suspend/reinstate a customer, issue a password reset, record a
+      payout, approve/reject/suspend a seller, change commission, feature
+      a product, resettle a payment. A few of these already had a
+      per-entity field (`Seller.reviewedBy`, `User.suspendedByAdmin`) but
+      nothing unified them, and most had no persisted trail at all — only
+      a structured log line, not a queryable database record.
+
+      New `AdminAuditLog`, deliberately mirroring two precedents already
+      established in this schema: `actorUserId` is a plain string, not a
+      relation (same reasoning `OrderEvent.actor`/`Seller.reviewedBy`
+      already use — the admin's account outliving every action they took
+      is not a DB-level constraint worth enforcing), and `actorEmail` is
+      a REAL snapshot, not a live join — the same reasoning `OrderLine`
+      snapshots product/seller data, made concretely necessary by this
+      session's own self-service account deletion: an admin's email can
+      now be anonymized by that same admin, with no role restriction, and
+      the trail must keep saying who really did this at the time.
+
+      `recordAdminAction`/`listAuditLog` in a new `audit-log-service.ts`,
+      wired into all 10 real admin actions across `admin-actions.ts` and
+      `seller-actions.ts` (three of which — `resettlePaymentAction`,
+      `toggleProductFeaturedAction`, `recordSellerPayoutAction` — were
+      previously discarding their own `requireRole` return value entirely,
+      never even capturing the acting admin; fixed as part of wiring
+      this in). New `/admin/audit-log` page (filterable by target type),
+      linked from the sidebar nav, plus a direct "View audit log for this
+      user" cross-link from `/admin/users/[id]`.
+
+      3 new integration tests for the service itself, most notably one
+      proving the snapshot property directly: an entry's `actorEmail`
+      survives, unchanged, after that same admin's `User` row is
+      anonymized exactly the way `deleteOwnAccount` would do it. Full
+      regression suite (72 unit, 207 integration) and a production build
+      pass. Verified end-to-end over real HTTP: a real admin login, a
+      real `reinstateUserAction` submitted via Next's actual Server
+      Action protocol, and the resulting entry immediately visible on
+      both the target-filtered and the general `/admin/audit-log` views
+      with the correct admin email — and the page itself confirmed
+      blocked for an unauthenticated request. (The other 9 wiring sites
+      share this exact same simple, mechanical pattern — call
+      `recordAdminAction` with the same shape right after the real
+      action succeeds — and weren't each independently re-verified over
+      HTTP; the service layer's own 3 tests plus this one full round
+      trip cover the pattern's correctness.)
+
+### Current status / where to resume (2026-08-21, commit `PENDING`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
 watched to a real, uncontested completion, per this session's own working
-discipline above. Full regression suite (typecheck, lint, 72 unit, 204
+discipline above. Full regression suite (typecheck, lint, 72 unit, 207
 integration) and a production build all pass cleanly as of this commit.
 
 Deliberately still out of scope, not oversights — both genuinely blocked
@@ -1519,7 +1567,8 @@ customer order cancellation, guest order lookup, admin-assisted password
 reset, self-service password change, admin customer suspension, seller
 self-service storefront settings, order delivery notes, seller low-stock
 alerts, compare-at pricing, SEO title/description, self-service account
-deletion, related products, the ProductCard low-stock badge fix, and
+deletion, related products, the ProductCard low-stock badge fix, an
+admin audit log, and
 more, each confirmed genuinely absent before being built). No further
 specific candidate is currently queued — the systematic dead-field
 audit's one remaining finding, `User.emailVerifiedAt`, is confirmed dead

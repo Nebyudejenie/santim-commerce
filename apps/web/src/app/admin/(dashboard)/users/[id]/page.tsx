@@ -68,6 +68,10 @@ export default async function AdminUserDetailPage({ params }: Props) {
         )}
       </div>
 
+      <p style={{ marginBottom: "var(--space-6)" }}>
+        <Link href={`/admin/audit-log?targetType=User&targetId=${user.id}`}>View audit log for this user &rarr;</Link>
+      </p>
+
       {user.deletedAt ? (
         <p className="form-hint">
           This account was deleted by the user and has no real email or password — account recovery and

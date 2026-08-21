@@ -1023,6 +1023,43 @@ model OrderEvent {
   @@map("order_events")
 }
 
+/// Cross-entity admin action trail — confirmed absent even though this
+/// codebase has accumulated real, sensitive admin power (suspend a
+/// customer, record a payout, issue a password reset, approve/suspend a
+/// seller, change commission, feature a product, resettle a payment) with
+/// no single, queryable record of who did what and when. Per-entity
+/// audit fields already exist for a few of these (Seller.reviewedBy,
+/// User.suspendedByAdmin) but nothing unifies them, and most of the
+/// above have no persisted trail at all — only a structured log line.
+///
+/// `actorUserId` is deliberately a plain string, not a relation — same
+/// reasoning OrderEvent.actor and Seller.reviewedBy already established:
+/// the admin's account outliving every action they ever took is not a
+/// constraint worth enforcing at the database level. `actorEmail` is a
+/// REAL snapshot, not a live join, for the same reason OrderLine
+/// snapshots product/seller data — an admin's own email can change, or
+/// (since this session added self-service account deletion, which has no
+/// role restriction) be anonymized later. The audit trail must keep
+/// saying who really did this at the time, not whatever that account
+/// happens to say today.
+model AdminAuditLog {
+  id          String   @id @default(cuid())
+  actorUserId String
+  actorEmail  String
+  /// e.g. "user.suspended", "seller.approved", "payout.recorded"
+  action      String
+  /// e.g. "User", "Seller", "Product", "Payment"
+  targetType  String
+  targetId    String
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  @@index([targetType, targetId])
+  @@index([actorUserId])
+  @@index([createdAt])
+  @@map("admin_audit_log")
+}
+
 // ------------------------------------------------------------------ payments
 
 /// A single attempt to collect money. An order can have several — a customer

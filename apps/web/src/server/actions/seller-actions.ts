@@ -20,6 +20,7 @@ import {
   suspendSeller,
   updateSellerProfile,
 } from "../sellers/seller-service.js";
+import { recordAdminAction } from "../admin/audit-log-service.js";
 import { logger } from "../observability/logger.js";
 
 export interface SellerActionState {
@@ -79,6 +80,13 @@ export async function approveSellerAction(
   try {
     await approveSeller(sellerId, admin.id);
     revalidatePath("/admin/sellers");
+    await recordAdminAction({
+      actorUserId: admin.id,
+      actorEmail: admin.email,
+      action: "seller.approved",
+      targetType: "Seller",
+      targetId: sellerId,
+    });
     return { ok: true, message: "Seller approved." };
   } catch (error) {
     if (error instanceof SellerError) return { ok: false, message: error.message };
@@ -99,6 +107,14 @@ export async function rejectSellerAction(
   try {
     await rejectSeller(sellerId, admin.id, reason);
     revalidatePath("/admin/sellers");
+    await recordAdminAction({
+      actorUserId: admin.id,
+      actorEmail: admin.email,
+      action: "seller.rejected",
+      targetType: "Seller",
+      targetId: sellerId,
+      metadata: { reason },
+    });
     return { ok: true, message: "Seller application rejected." };
   } catch (error) {
     if (error instanceof SellerError) return { ok: false, message: error.message };
@@ -118,6 +134,13 @@ export async function suspendSellerAction(
   try {
     await suspendSeller(sellerId, admin.id);
     revalidatePath("/admin/sellers");
+    await recordAdminAction({
+      actorUserId: admin.id,
+      actorEmail: admin.email,
+      action: "seller.suspended",
+      targetType: "Seller",
+      targetId: sellerId,
+    });
     return { ok: true, message: "Seller suspended." };
   } catch (error) {
     if (error instanceof SellerError) return { ok: false, message: error.message };
@@ -144,6 +167,14 @@ export async function setSellerCommissionAction(
   try {
     await setSellerCommission(sellerId, commissionBps, admin.id);
     revalidatePath("/admin/sellers");
+    await recordAdminAction({
+      actorUserId: admin.id,
+      actorEmail: admin.email,
+      action: "seller.commission_changed",
+      targetType: "Seller",
+      targetId: sellerId,
+      metadata: { commissionBps },
+    });
     return { ok: true, message: `Commission set to ${(commissionBps / 100).toFixed(2)}%.` };
   } catch (error) {
     if (error instanceof SellerError) return { ok: false, message: error.message };
