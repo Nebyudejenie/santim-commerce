@@ -12,6 +12,7 @@ import { requireApprovedSeller, SellerError } from "../sellers/seller-service.js
 import {
   approveReturnAsAdmin,
   approveReturnAsSeller,
+  disputeReturnRejection,
   rejectReturnAsAdmin,
   rejectReturnAsSeller,
   requestReturn,
@@ -43,6 +44,28 @@ export async function requestReturnAction(
 
   if (orderNumber) revalidatePath(`/account/orders/${orderNumber}`);
   return { ok: true, message: "Return requested — the seller will review it." };
+}
+
+export async function disputeReturnAction(
+  _prev: ReturnActionState,
+  formData: FormData,
+): Promise<ReturnActionState> {
+  const user = await requireUser();
+  const returnRequestId = String(formData.get("returnRequestId") ?? "");
+  const orderNumber = String(formData.get("orderNumber") ?? "");
+  const reason = String(formData.get("reason") ?? "");
+
+  try {
+    await disputeReturnRejection(user.id, returnRequestId, reason);
+  } catch (error) {
+    if (error instanceof ReturnError) return { ok: false, message: error.message };
+    logger.error("return.dispute_action_failed", { returnRequestId, error: (error as Error).message });
+    return { ok: false, message: "Something went wrong. Please try again." };
+  }
+
+  if (orderNumber) revalidatePath(`/account/orders/${orderNumber}`);
+  revalidatePath("/admin/returns");
+  return { ok: true, message: "Escalated to admin for a final decision." };
 }
 
 async function sellerIdOrState(): Promise<string | ReturnActionState> {

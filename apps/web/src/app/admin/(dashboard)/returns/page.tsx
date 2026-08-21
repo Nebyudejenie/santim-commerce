@@ -31,10 +31,17 @@ export default async function AdminReturnsPage() {
                 <td>{request.order.orderNumber}</td>
                 <td>{request.orderLine.productTitle} · {request.orderLine.variantTitle}</td>
                 <td>{request.requestedBy.email}</td>
-                <td style={{ maxWidth: "260px" }}>{request.reason}</td>
+                <td style={{ maxWidth: "260px" }}>
+                  {request.reason}
+                  {request.disputeReason && (
+                    <p style={{ marginTop: "var(--space-2)", color: "var(--fg-muted)", fontSize: "var(--text-xs)" }}>
+                      Buyer&apos;s dispute: &ldquo;{request.disputeReason}&rdquo;
+                    </p>
+                  )}
+                </td>
                 <td><StatusPill status={request.status} /></td>
                 <td>
-                  {request.status === "REQUESTED" ? (
+                  {request.status === "REQUESTED" || request.status === "DISPUTED" ? (
                     <AdminReturnActions returnRequestId={request.id} />
                   ) : (
                     <span style={{ fontSize: "var(--text-xs)", color: "var(--fg-muted)" }}>

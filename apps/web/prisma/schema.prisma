@@ -976,11 +976,15 @@ model OrderLine {
   @@map("order_lines")
 }
 
-/// One return request per line, ever, in v1 — a rejected request is final
-/// (a real escalation/dispute path is a genuinely separate feature, not
-/// half-built here). Can only be requested once the line is FULFILLED —
-/// you return something that was actually delivered, not something still
-/// in transit or never shipped.
+/// One return request per line, ever, in v1. A REJECTED verdict can be
+/// disputed by the buyer EXACTLY once (see return-service.ts's
+/// `disputeReturnRejection`) — REQUESTED -> REJECTED -> DISPUTED ->
+/// APPROVED|REJECTED, the second REJECTED terminal for real this time.
+/// No re-dispute of an admin's own final call, same "one shot" reasoning
+/// as the return request itself only ever being creatable once per line.
+/// Can only be requested once the line is FULFILLED — you return
+/// something that was actually delivered, not something still in transit
+/// or never shipped.
 ///
 /// Approving a return does three real things together, in one transaction
 /// (see return-service.ts): restocks the variant's real inventory
@@ -1010,6 +1014,14 @@ model ReturnRequest {
   resolutionNote   String?
   resolvedAt       DateTime?
 
+  /// Set once by the buyer disputing a REJECTED verdict — separate from
+  /// `reason` (the original return reason) and `resolutionNote` (the
+  /// seller's own rejection note), since all three are different
+  /// people's real words at different points in time, none of them safe
+  /// to overwrite the others.
+  disputeReason String?   @db.Text
+  disputedAt    DateTime?
+
   createdAt DateTime @default(now())
 
   @@index([status])
@@ -1020,6 +1032,9 @@ enum ReturnRequestStatus {
   REQUESTED
   APPROVED
   REJECTED
+  /// Buyer-escalated a REJECTED verdict to admin — see ReturnRequest's
+  /// own model comment for the full state path.
+  DISPUTED
 }
 
 /// Append-only audit trail. When a customer asks "what happened to my order",

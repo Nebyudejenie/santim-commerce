@@ -1801,12 +1801,79 @@ proved out this session — do not relax these just because the scope grew)
       attributing the real admin. All seeded data and verify scripts
       cleaned up afterward.
 
-### Current status / where to resume (2026-08-22, commit `13b1ea2`)
+- [x] **Return dispute escalation** — the master mandate's own "disputes"
+      line item (section 19's feature list). `ReturnRequest`'s own model
+      comment previously called a REJECTED verdict final in v1, explicitly
+      flagging "a real escalation/dispute path" as a genuinely separate
+      feature — confirmed still absent (a rejected return had no path
+      back to admin at all) before building this. New
+      `ReturnRequestStatus.DISPUTED` plus `disputeReason`/`disputedAt` on
+      `ReturnRequest`. New `disputeReturnRejection(userId, returnRequestId,
+      reason)`: ownership via the WHERE clause itself (ties to a request
+      the caller actually filed), only from `REJECTED`, min 10-character
+      reason mirroring `requestReturn`'s own validation.
+
+      `applyResolution` (the shared engine behind every seller/admin
+      resolution) was refactored to take an explicit `allowedPriorStatuses`
+      list instead of a hardcoded `"REQUESTED"` check — the seller path
+      stays `["REQUESTED"]` only (a seller must never resolve a dispute
+      they've lost control of), while the admin path becomes
+      `["REQUESTED", "DISPUTED"]`, letting `approveReturnAsAdmin`/
+      `rejectReturnAsAdmin` make the actual final call on an escalated
+      dispute using the exact same real restock/ledger-reversal
+      transaction every other approval already uses — no parallel
+      "dispute resolution" logic to drift from the real one.
+
+      Caught a real design bug in my own first draft before writing any
+      test: gating re-dispute on `status: "REJECTED"` alone is wrong,
+      because admin's own FINAL verdict can ITSELF be REJECTED, putting
+      status back to exactly `REJECTED` — that would have let a buyer
+      dispute a second time. Fixed by gating on `disputedAt: null` instead
+      of `status` alone — `disputedAt` being set is the real one-shot
+      marker regardless of what status the request cycles back to.
+
+      New `/account/orders/[orderNumber]` "Dispute this decision" button
+      (same reveal-on-click pattern as the existing return-request
+      button), shown only for `REJECTED` + not yet disputed. `/admin/
+      returns` now shows the real Approve/Reject actions for `DISPUTED`
+      requests too (previously only `REQUESTED`), plus the buyer's own
+      dispute reason inline. `computeDisputeRate` in
+      `seller-reputation-service.ts` (a pre-existing metric) needed zero
+      changes — it already counted "resolved by someone other than the
+      seller" as a dispute, which a buyer-escalated case now populates
+      for real instead of only the rare admin-preempts-the-seller case.
+
+      5 new integration tests (dispute locks the seller out; disputing a
+      non-rejected request is refused with a specific message; a stranger
+      gets the generic "not found", never an oracle; admin's final
+      APPROVED call does the real restock+ledger-reversal; admin's final
+      REJECTED call is genuinely terminal, confirmed by attempting and
+      failing a second dispute). Full regression (72 unit, 242
+      integration, run twice given this touches settlement/inventory) and
+      a production build pass. Real HTTP E2E: seeded a real REJECTED
+      return, confirmed the buyer's real page shows "Dispute this
+      decision"; the dispute action itself uses the same reveal-on-click
+      pattern documented earlier this session as inapplicable to the curl
+      replication technique, so `disputeReturnRejection` was exercised
+      directly (already covered exhaustively by the 5 tests above) to
+      produce a real DISPUTED row; from there, confirmed over real HTTP
+      that the buyer's button disappears and shows the real DISPUTED
+      status, the real admin `/admin/returns` page now renders live
+      Approve/Reject buttons for it plus the real dispute reason, found
+      the real compiled action id/key for `adminApproveReturnAction` via
+      the build's own `server-reference-manifest.json` (a server-rendered
+      form, not reveal-gated) and submitted a real approval over HTTP,
+      then confirmed the real final state: status APPROVED, inventory
+      restocked from 5 to 6, and the buyer's page showing APPROVED with
+      no further dispute option. All seeded data and verify scripts
+      cleaned up afterward.
+
+### Current status / where to resume (2026-08-22, commit `PENDING`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
 watched to a real, uncontested completion, per this session's own working
-discipline above. Full regression suite (typecheck, lint, 72 unit, 237
+discipline above. Full regression suite (typecheck, lint, 72 unit, 242
 integration) and a production build all pass cleanly as of this commit.
 
 Deliberately still out of scope, not oversights — both genuinely blocked
@@ -1840,7 +1907,8 @@ self-service storefront settings, order delivery notes, seller low-stock
 alerts, compare-at pricing, SEO title/description, self-service account
 deletion, related products, the ProductCard low-stock badge fix, an
 admin audit log, product Q&A moderation, self-service data export, seller order search/filter, customer order search, admin users CSV export, seller vacation mode, seller "new sale" notification, buyer-seller order
-messaging, admin message moderation, and more, each confirmed genuinely absent before being built). No further
+messaging, admin message moderation, return dispute escalation, and
+more, each confirmed genuinely absent before being built). No further
 specific candidate is currently queued — the systematic dead-field
 audit's one remaining finding, `User.emailVerifiedAt`, is confirmed dead
 but correctly out of scope (see the compare-at entry above for why).

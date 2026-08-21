@@ -18,6 +18,8 @@ import { PrismaClient } from "@prisma/client";
 import {
   approveReturnAsAdmin,
   approveReturnAsSeller,
+  disputeReturnRejection,
+  rejectReturnAsAdmin,
   rejectReturnAsSeller,
   requestReturn,
   ReturnError,
@@ -209,6 +211,106 @@ test("an admin can approve a return regardless of which seller owns the line", a
   const approved = await prisma.returnRequest.findUniqueOrThrow({ where: { id: request.id } });
   assert.equal(approved.status, "APPROVED");
   assert.equal(approved.resolvedByUserId, admin.id);
+});
+
+test("a buyer can dispute a REJECTED return, escalating it to admin — the seller can no longer act on it", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const { sellerId, buyerId, lineId } = await makeSellerBuyerOrderLine(suffix);
+
+  await requestReturn(buyerId, lineId, "Real reason for a return that will be disputed.");
+  const request = await prisma.returnRequest.findUniqueOrThrow({ where: { orderLineId: lineId } });
+  await rejectReturnAsSeller(sellerId, request.id, "No evidence of damage.");
+
+  await disputeReturnRejection(buyerId, request.id, "The seller never even asked for photos.");
+
+  const disputed = await prisma.returnRequest.findUniqueOrThrow({ where: { id: request.id } });
+  assert.equal(disputed.status, "DISPUTED");
+  assert.equal(disputed.disputeReason, "The seller never even asked for photos.");
+  assert.ok(disputed.disputedAt);
+
+  // The seller must never be able to resolve a dispute they lost control of.
+  await assert.rejects(
+    () => approveReturnAsSeller(sellerId, request.id, "Actually fine."),
+    (err: unknown) => err instanceof ReturnError && /already disputed/.test(err.message),
+  );
+  await assert.rejects(() => rejectReturnAsSeller(sellerId, request.id, "Still no."), ReturnError);
+});
+
+test("disputing a non-rejected return (still REQUESTED) is refused with a specific message", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const { buyerId, lineId } = await makeSellerBuyerOrderLine(suffix);
+
+  await requestReturn(buyerId, lineId, "Real reason, not yet resolved by the seller.");
+  const request = await prisma.returnRequest.findUniqueOrThrow({ where: { orderLineId: lineId } });
+
+  await assert.rejects(
+    () => disputeReturnRejection(buyerId, request.id, "Trying to dispute too early."),
+    (err: unknown) => err instanceof ReturnError && /Only a rejected return can be disputed/.test(err.message),
+  );
+});
+
+test("a stranger disputing someone else's rejected return gets the same generic 'not found' a bogus id gets", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const { sellerId, buyerId, lineId } = await makeSellerBuyerOrderLine(suffix);
+  const stranger = await prisma.user.create({ data: { email: `return-stranger-${suffix}@example.et`, role: "CUSTOMER" } });
+
+  await requestReturn(buyerId, lineId, "Real reason for a return a stranger will try to dispute.");
+  const request = await prisma.returnRequest.findUniqueOrThrow({ where: { orderLineId: lineId } });
+  await rejectReturnAsSeller(sellerId, request.id, "Rejected.");
+
+  await assert.rejects(
+    () => disputeReturnRejection(stranger.id, request.id, "Not my return, trying to dispute it anyway."),
+    (err: unknown) => err instanceof ReturnError && err.message === "Return request not found.",
+  );
+
+  const untouched = await prisma.returnRequest.findUniqueOrThrow({ where: { id: request.id } });
+  assert.equal(untouched.status, "REJECTED", "a stranger's attempt must not have changed anything");
+});
+
+test("an admin's final call on a disputed return does the whole real approval, and the buyer cannot dispute a second time", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const { sellerId, buyerId, orderId, lineId, variantId } = await makeSellerBuyerOrderLine(suffix);
+  const admin = await prisma.user.create({ data: { email: `return-admin-${suffix}@example.et`, role: "ADMIN" } });
+
+  await createLedgerEntriesForOrder(orderId);
+  await requestReturn(buyerId, lineId, "Real reason for a return that ends up disputed then approved.");
+  const request = await prisma.returnRequest.findUniqueOrThrow({ where: { orderLineId: lineId } });
+  await rejectReturnAsSeller(sellerId, request.id, "Initial rejection.");
+  await disputeReturnRejection(buyerId, request.id, "Escalating — the seller was wrong.");
+
+  await approveReturnAsAdmin(admin.id, request.id, "Admin reviewed evidence, approving.");
+
+  const resolved = await prisma.returnRequest.findUniqueOrThrow({ where: { id: request.id } });
+  assert.equal(resolved.status, "APPROVED");
+  assert.equal(resolved.resolvedByUserId, admin.id);
+
+  const inventoryAfter = await prisma.inventory.findUniqueOrThrow({ where: { variantId } });
+  assert.equal(inventoryAfter.onHand, 6, "the admin's final approval must still do the real restock");
+
+  const balance = await getSellerBalance(sellerId);
+  assert.equal(balance.payableSantim, 0, "the admin's final approval must still reverse settlement");
+});
+
+test("an admin's final REJECTED call on a disputed return is genuinely terminal — no second dispute", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const { sellerId, buyerId, lineId } = await makeSellerBuyerOrderLine(suffix);
+  const admin = await prisma.user.create({ data: { email: `return-admin-${suffix}@example.et`, role: "ADMIN" } });
+
+  await requestReturn(buyerId, lineId, "Real reason for a return that ends up disputed then rejected again.");
+  const request = await prisma.returnRequest.findUniqueOrThrow({ where: { orderLineId: lineId } });
+  await rejectReturnAsSeller(sellerId, request.id, "Initial rejection.");
+  await disputeReturnRejection(buyerId, request.id, "Escalating this decision.");
+  await rejectReturnAsAdmin(admin.id, request.id, "Reviewed — the seller's original call was correct.");
+
+  const final = await prisma.returnRequest.findUniqueOrThrow({ where: { id: request.id } });
+  assert.equal(final.status, "REJECTED", "status goes back to REJECTED after the admin's final call");
+  assert.ok(final.disputedAt, "disputedAt stays set — the real marker that this already went through one dispute");
+
+  // Status alone is REJECTED again, but this must NOT be disputable a second time.
+  await assert.rejects(
+    () => disputeReturnRejection(buyerId, request.id, "Trying to dispute the final admin call too."),
+    (err: unknown) => err instanceof ReturnError && /already been disputed once/.test(err.message),
+  );
 });
 
 test.after(async () => {

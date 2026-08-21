@@ -7,6 +7,7 @@ import { Money } from "@/components/money";
 import { StatusPill } from "@/components/status-pill";
 import { ProductImage } from "@/components/product-image";
 import { RequestReturnButton } from "@/components/request-return-button";
+import { DisputeReturnButton } from "@/components/dispute-return-button";
 import { CancelOrderButton } from "@/components/cancel-order-button";
 import { OpenBuyerThreadButton } from "@/components/open-buyer-thread-button";
 
@@ -67,9 +68,16 @@ export default async function AccountOrderDetailPage({ params }: Props) {
                 <RequestReturnButton orderLineId={line.id} orderNumber={order.orderNumber} />
               )}
               {line.returnRequest && (
-                <span style={{ fontSize: "var(--text-xs)", color: "var(--fg-muted)" }}>
-                  Return: <StatusPill status={line.returnRequest.status} />
-                </span>
+                <div>
+                  <span style={{ fontSize: "var(--text-xs)", color: "var(--fg-muted)" }}>
+                    Return: <StatusPill status={line.returnRequest.status} />
+                  </span>
+                  {line.returnRequest.status === "REJECTED" && !line.returnRequest.disputedAt && (
+                    <div style={{ marginTop: "var(--space-2)" }}>
+                      <DisputeReturnButton returnRequestId={line.returnRequest.id} orderNumber={order.orderNumber} />
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           </div>
