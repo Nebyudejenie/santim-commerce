@@ -1090,12 +1090,53 @@ proved out this session — do not relax these just because the scope grew)
       Full regression suite (72 unit, 178 integration) and a production
       build both pass.
 
-### Current status / where to resume (2026-08-21, commit `2ca4cde`)
+- [x] **Bug fix: recently-viewed ordering was still wrong under CI, not just
+      "flaky"** — CI went red on the customer-suspension push with a real,
+      reproducible assertion failure in
+      `recently-viewed-service.integration.test.ts`, in a test unrelated to
+      that push (it hadn't been touched this session since the original
+      "Recently viewed products" entry above). The earlier fix for that
+      feature — order by `[viewedAt desc, id desc]`, reasoning that `id`
+      (a cuid) breaks a millisecond-precision tie — was itself wrong, not
+      just occasionally unlucky: an upsert's UPDATE branch never changes a
+      row's `id`. So a product viewed long ago (smaller id), then
+      RE-viewed just now, can still lose a `viewedAt` tie against a
+      DIFFERENT product's row created more recently (larger id) but never
+      re-viewed since — exactly backwards from "most recently viewed
+      first". `id` tracks *when a row was first created*, never *when it
+      was last touched* — a real design error in the original fix's
+      reasoning, not a coincidence of bad luck, and CI's 3-job-parallel
+      timing made the millisecond tie land more often than it happened to
+      locally.
+
+      Root-caused rather than patched: replaced the whole `viewedAt`/`id`
+      ordering scheme with a real, DB-level monotonic counter.
+      `RecentlyViewed.touchSeq` (`BigInt`) is bumped via a Postgres
+      sequence's `nextval()` on EVERY view — create or update alike, via a
+      raw `UPDATE ... SET "touchSeq" = nextval(...)` run in the same
+      transaction as the upsert — so ordering is correct regardless of
+      timestamp precision or which row is older. `listRecentlyViewed` now
+      orders by `touchSeq` alone.
+
+      New direct regression test asserts the exact invariant: after
+      viewing A, then B, then re-viewing A, A's row id is confirmed
+      smaller than B's (proving the old scheme's precondition for failure
+      is real) while A's `touchSeq` is confirmed greater (proving the fix).
+      Full integration suite (179 tests) run 3 times clean — this file's
+      own tests run 5 times clean in isolation first. Verified end-to-end
+      over real HTTP through the ACTUAL product-page write path, not a
+      pre-seeded row: visited product A, then B, then re-visited A as a
+      real signed-in customer, and confirmed the homepage's "Recently
+      viewed" section rendered A before B in both the real HTML and its
+      RSC flight duplicate. Full regression suite (72 unit, 179
+      integration) and a production build pass.
+
+### Current status / where to resume (2026-08-21, commit `PENDING`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
 watched to a real, uncontested completion, per this session's own working
-discipline above. Full regression suite (typecheck, lint, 72 unit, 178
+discipline above. Full regression suite (typecheck, lint, 72 unit, 179
 integration) and a production build all pass cleanly as of this commit.
 
 Deliberately still out of scope, not oversights — both genuinely blocked

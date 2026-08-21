@@ -16,11 +16,23 @@ import { prisma } from "../db.js";
 import { VISIBLE_PRODUCT_WHERE } from "./catalogue-service.js";
 
 export async function recordView(userId: string, productId: string): Promise<void> {
-  await prisma.recentlyViewed.upsert({
-    where: { userId_productId: { userId, productId } },
-    create: { userId, productId },
-    update: { viewedAt: new Date() },
-  });
+  // The upsert alone establishes/touches viewedAt; the raw statement right
+  // after is what actually fixes ordering — see RecentlyViewed.touchSeq's
+  // own schema comment for why viewedAt/id can't safely do this on their
+  // own. nextval() runs on EVERY view, create or update, so touchSeq is a
+  // real, DB-level monotonic "last touched" counter.
+  await prisma.$transaction([
+    prisma.recentlyViewed.upsert({
+      where: { userId_productId: { userId, productId } },
+      create: { userId, productId },
+      update: { viewedAt: new Date() },
+    }),
+    prisma.$executeRaw`
+      UPDATE "recently_viewed"
+      SET "touchSeq" = nextval('recently_viewed_touch_seq')
+      WHERE "userId" = ${userId} AND "productId" = ${productId}
+    `,
+  ]);
 }
 
 /**
@@ -36,11 +48,9 @@ export async function listRecentlyViewed(userId: string, excludeProductId?: stri
       productId: excludeProductId ? { not: excludeProductId } : undefined,
       product: VISIBLE_PRODUCT_WHERE,
     },
-    // id (a cuid — monotonically increasing) breaks a real, non-negligible
-    // tie: viewedAt is millisecond precision, and two views (a fast
-    // double-click, a prefetch) can easily land in the same millisecond.
-    // Without this, "most recent first" would flicker on a real tie.
-    orderBy: [{ viewedAt: "desc" }, { id: "desc" }],
+    // touchSeq, not viewedAt/id — see recordView and the model's own
+    // comment for why those can't safely order "most recently touched".
+    orderBy: [{ touchSeq: "desc" }],
     take,
     include: {
       product: {

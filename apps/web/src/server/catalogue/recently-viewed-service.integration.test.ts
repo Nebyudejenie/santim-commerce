@@ -65,6 +65,29 @@ test("viewing the same product twice updates recency in place — no duplicate r
   assert.equal(rows, 1);
 });
 
+test("touchSeq — not viewedAt or id — is what makes a re-viewed row rank correctly", async () => {
+  // Direct regression test for a real bug: ordering by [viewedAt desc, id
+  // desc] is wrong once a row is UPDATED rather than created, because an
+  // upsert's update branch never changes `id` — an older row (smaller id)
+  // that's re-viewed NOW can still lose a viewedAt tie against a newer,
+  // untouched row (larger id). touchSeq must be strictly greater on A
+  // after its re-view than B's, even though A's row id is smaller.
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const userId = await makeUser(suffix);
+  const productA = await makeProduct(`${suffix}-a`);
+  const productB = await makeProduct(`${suffix}-b`);
+
+  await recordView(userId, productA);
+  await recordView(userId, productB);
+  await recordView(userId, productA);
+
+  const rowA = await prisma.recentlyViewed.findUniqueOrThrow({ where: { userId_productId: { userId, productId: productA } } });
+  const rowB = await prisma.recentlyViewed.findUniqueOrThrow({ where: { userId_productId: { userId, productId: productB } } });
+
+  assert.ok(rowA.id < rowB.id, "sanity check: A's row id really is smaller — it was created first");
+  assert.ok(rowA.touchSeq > rowB.touchSeq, "A's touchSeq must be greater — it was touched most recently, regardless of row id");
+});
+
 test("listRecentlyViewed excludes a product that's since become unavailable", async () => {
   const suffix = Math.random().toString(36).slice(2, 8);
   const userId = await makeUser(suffix);

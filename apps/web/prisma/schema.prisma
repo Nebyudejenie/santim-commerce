@@ -478,8 +478,25 @@ model RecentlyViewed {
 
   viewedAt DateTime @default(now())
 
+  /// Real, DB-level monotonic counter, backed by an explicit Postgres
+  /// sequence (see recently-viewed-service.ts's recordView) — NOT
+  /// `viewedAt` and NOT `id`. This replaces an earlier, genuinely broken
+  /// fix: ordering by `[viewedAt desc, id desc]` looks reasonable but is
+  /// wrong the moment a row gets UPDATED rather than created — an
+  /// upsert's update branch never changes `id`, so a product viewed
+  /// LONG ago (smaller id) that gets RE-VIEWED now can still lose a
+  /// `viewedAt` tie against a DIFFERENT product's row created more
+  /// recently (larger id) but not re-viewed since — exactly backwards
+  /// from "most recently viewed first". `viewedAt` alone ties at
+  /// millisecond (JS Date) precision easily inside a fast test loop, and
+  /// nothing about `id` tracks *when a row was last touched* rather than
+  /// *when it was first created*. `touchSeq` is bumped via `nextval()` on
+  /// EVERY view — create or update — so ordering is correct regardless of
+  /// timestamp precision or which rows are old vs new.
+  touchSeq BigInt @default(0)
+
   @@unique([userId, productId])
-  @@index([userId, viewedAt])
+  @@index([userId, touchSeq])
   @@map("recently_viewed")
 }
 
