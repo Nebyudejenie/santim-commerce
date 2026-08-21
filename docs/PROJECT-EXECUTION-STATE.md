@@ -1327,7 +1327,7 @@ proved out this session — do not relax these just because the scope grew)
       backwards (50 ETB compare-at against an 80 ETB price) submission
       correctly rejected with the database confirmed unchanged.
 
-### Current status / where to resume (2026-08-21, commit `PENDING`)
+### Current status / where to resume (2026-08-21, commit `6eae507`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
