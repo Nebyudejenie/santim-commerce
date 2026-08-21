@@ -290,6 +290,15 @@ export interface SellerBusinessMetrics {
   readonly ordersCount: number;
   readonly grossSalesSantim: number;
   readonly topProducts: readonly SellerTopProduct[];
+  /** Sum of (lineTotal - cost*quantity) across only the lines with a real
+   * cost snapshot — null when NOTHING in the window has cost data at
+   * all, so the UI can omit the stat entirely rather than show a
+   * fabricated "0". Never silently treats a missing cost as free. */
+  readonly marginSantim: number | null;
+  /** Real units sold in the window with no cost snapshot — the honest
+   * disclaimer for `marginSantim` being a partial figure, not a
+   * rounding error or a bug. */
+  readonly unitsMissingCostData: number;
 }
 
 /**
@@ -314,11 +323,18 @@ export async function getSellerBusinessMetrics(sellerId: string): Promise<Seller
       // than when the sale was actually real.
       order: { status: { in: ["PAID", "REFUNDED", "PARTIALLY_REFUNDED"] }, paidAt: { gte: windowStart } },
     },
-    select: { orderId: true, productTitle: true, quantity: true, lineTotalSantim: true },
+    select: { orderId: true, productTitle: true, quantity: true, lineTotalSantim: true, costSantim: true },
   });
 
   const distinctOrderIds = new Set(lines.map((l) => l.orderId));
   const grossSalesSantim = lines.reduce((sum, l) => sum + l.lineTotalSantim, 0);
+
+  const linesWithCost = lines.filter((l) => l.costSantim !== null);
+  const marginSantim =
+    linesWithCost.length > 0
+      ? linesWithCost.reduce((sum, l) => sum + (l.lineTotalSantim - l.costSantim! * l.quantity), 0)
+      : null;
+  const unitsMissingCostData = lines.filter((l) => l.costSantim === null).reduce((sum, l) => sum + l.quantity, 0);
 
   const byProduct = new Map<string, { unitsSold: number; revenueSantim: number }>();
   for (const line of lines) {
@@ -337,5 +353,7 @@ export async function getSellerBusinessMetrics(sellerId: string): Promise<Seller
     ordersCount: distinctOrderIds.size,
     grossSalesSantim,
     topProducts,
+    marginSantim,
+    unitsMissingCostData,
   };
 }

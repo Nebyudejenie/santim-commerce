@@ -996,6 +996,15 @@ model OrderLine {
   quantity        Int
   lineTotalSantim Int
 
+  /// Snapshotted from `Variant.costSantim` at order-placement time, same
+  /// "historical record, not a view" reasoning as every other field
+  /// above — a seller's cost basis can change (supplier price shifts),
+  /// and this line's real margin must reflect what it actually cost
+  /// THEN, never a later value. Null when the seller never set a cost
+  /// for this variant — margin reporting must show that honestly as
+  /// "unknown," never silently treat it as zero.
+  costSantim Int?
+
   /// Per-LINE fulfilment, not just Order.fulfilmentStatus — a multi-seller
   /// order needs this: seller A can ship their item while seller B hasn't,
   /// and a single Order-level field cannot represent that. Order's own

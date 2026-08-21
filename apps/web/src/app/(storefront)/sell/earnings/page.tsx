@@ -41,6 +41,18 @@ export default async function SellerEarningsPage() {
           <p className="stat-tile__label">Gross sales</p>
           <p className="stat-tile__value"><Money santim={metrics.grossSalesSantim} /></p>
         </div>
+        {metrics.marginSantim !== null && (
+          <div className="stat-tile">
+            <p className="stat-tile__label">Estimated margin</p>
+            <p className="stat-tile__value"><Money santim={metrics.marginSantim} /></p>
+            {metrics.unitsMissingCostData > 0 && (
+              <p style={{ fontSize: "var(--text-xs)", color: "var(--fg-muted)" }}>
+                {metrics.unitsMissingCostData} unit{metrics.unitsMissingCostData === 1 ? "" : "s"} missing cost data — set
+                your cost per variant to include them
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       {metrics.topProducts.length > 0 && (

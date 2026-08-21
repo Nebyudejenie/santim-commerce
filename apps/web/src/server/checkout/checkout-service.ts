@@ -208,6 +208,10 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
               unitPriceSantim: line.variant.priceSantim,
               quantity: line.quantity,
               lineTotalSantim: line.variant.priceSantim * line.quantity,
+              // Snapshotted for real margin reporting — see OrderLine's
+              // own schema comment on why this must never be a live
+              // read of the variant's CURRENT cost.
+              costSantim: line.variant.costSantim,
             })),
           },
         },

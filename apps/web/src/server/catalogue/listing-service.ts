@@ -77,6 +77,9 @@ export interface CreateProductInput {
    * reservation layer already respected this correctly; the storefront
    * just had no way for a seller to ever turn it on. */
   readonly allowBackorder?: boolean;
+  /** Real cost basis, for the seller's own margin reporting — see
+   * OrderLine.costSantim's own schema comment. */
+  readonly costBirr?: string;
 }
 
 /**
@@ -112,6 +115,7 @@ export async function createProduct(sellerId: string, input: CreateProductInput)
   if (!sku) throw new ListingError("SKU is required.");
 
   const priceSantim = parseBirr(input.priceBirr, "Price");
+  const costSantim = parseOptionalBirr(input.costBirr, "Cost");
   const onHand = Number(input.onHand);
   if (!Number.isInteger(onHand) || onHand < 0) {
     throw new ListingError("Stock quantity must be a non-negative whole number.");
@@ -146,6 +150,7 @@ export async function createProduct(sellerId: string, input: CreateProductInput)
             sku,
             title: input.variantTitle.trim() || "Default",
             priceSantim,
+            costSantim,
             options: buildOptions(input.optionName, input.optionValue),
           },
         });
@@ -250,6 +255,10 @@ export interface AddVariantInput {
   readonly optionName?: string;
   readonly optionValue?: string;
   readonly allowBackorder?: boolean;
+  /** Real cost basis, for the seller's own margin reporting — never
+   * shown to buyers. See OrderLine.costSantim's own schema comment on
+   * why this is snapshotted at order time, not read live. */
+  readonly costBirr?: string;
 }
 
 export async function addVariant(sellerId: string, productId: string, input: AddVariantInput) {
@@ -266,6 +275,10 @@ export async function addVariant(sellerId: string, productId: string, input: Add
   if (compareAtSantim !== null && compareAtSantim <= priceSantim) {
     throw new ListingError("Compare-at price must be higher than the actual price.");
   }
+  // Deliberately no relationship check against price — a seller selling
+  // below cost (clearance, loss-leader) is a real, legitimate choice,
+  // not a data error the way an inverted compare-at price would be.
+  const costSantim = parseOptionalBirr(input.costBirr, "Cost");
 
   try {
     const variant = await prisma.variant.create({
@@ -275,6 +288,7 @@ export async function addVariant(sellerId: string, productId: string, input: Add
         title: input.title.trim() || "Default",
         priceSantim,
         compareAtSantim,
+        costSantim,
         options: buildOptions(input.optionName, input.optionValue),
       },
     });
@@ -300,6 +314,7 @@ export interface UpdateVariantInput {
   readonly optionName?: string;
   readonly optionValue?: string;
   readonly allowBackorder?: boolean;
+  readonly costBirr?: string;
 }
 
 /** Ownership is checked via the variant's OWN product, never trusted from the caller. */
@@ -330,6 +345,11 @@ export async function updateVariant(sellerId: string, variantId: string, input: 
   // in the form every save, never a partial, driftable merge.
   if (input.optionName !== undefined || input.optionValue !== undefined) {
     data.options = buildOptions(input.optionName, input.optionValue);
+  }
+  if (input.costBirr !== undefined) {
+    // No relationship check against price — see addVariant's own comment
+    // on why selling below cost is a legitimate seller choice.
+    data.costSantim = parseOptionalBirr(input.costBirr, "Cost");
   }
 
   // Wrapped in a transaction only when the price actually moves down —

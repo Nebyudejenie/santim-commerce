@@ -354,6 +354,61 @@ test("getSellerBusinessMetrics for a seller with no real sales returns real zero
   assert.equal(metrics.ordersCount, 0);
   assert.equal(metrics.grossSalesSantim, 0);
   assert.equal(metrics.topProducts.length, 0);
+  assert.equal(metrics.marginSantim, null, "no sales at all means nothing to report a margin on");
+  assert.equal(metrics.unitsMissingCostData, 0);
+});
+
+// costSantim is snapshotted onto OrderLine by checkout-service.ts's
+// placeOrder — untestable end-to-end in this environment for the same
+// documented reason checkout-service.integration.test.ts's own module
+// comment gives (env() + a real outbound gateway call on success), so
+// these seed the real downstream state directly, the same way this
+// file's other tests already create Order/OrderLine rows without going
+// through placeOrder.
+test("getSellerBusinessMetrics computes a real margin from lines with cost data, and reports units missing it honestly", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const sellerId = await makeSeller(`metrics-margin-${suffix}`, 1000);
+
+  await prisma.order.create({
+    data: {
+      orderNumber: `SC-LEDGERMARGIN-1-${suffix}`.toUpperCase(),
+      email: "buyer@example.et",
+      phone: "+251900000000",
+      status: "PAID",
+      subtotalSantim: 10_000,
+      totalSantim: 10_000,
+      paidAt: new Date(),
+      lines: {
+        create: [
+          // Sold for 100 each, cost 60 each, 2 units: 200 revenue, 120 cost, 80 margin.
+          { sellerId, sku: `MG1-${suffix}`, productTitle: "Known Cost Item", variantTitle: "Default", unitPriceSantim: 10_000, quantity: 2, lineTotalSantim: 20_000, costSantim: 6_000 },
+        ],
+      },
+    },
+  });
+  await prisma.order.create({
+    data: {
+      orderNumber: `SC-LEDGERMARGIN-2-${suffix}`.toUpperCase(),
+      email: "buyer@example.et",
+      phone: "+251900000000",
+      status: "PAID",
+      subtotalSantim: 5_000,
+      totalSantim: 5_000,
+      paidAt: new Date(),
+      lines: {
+        create: [
+          // No cost snapshot at all — must be excluded from the margin sum,
+          // never silently treated as free (which would inflate margin).
+          { sellerId, sku: `MG2-${suffix}`, productTitle: "Unknown Cost Item", variantTitle: "Default", unitPriceSantim: 5_000, quantity: 3, lineTotalSantim: 15_000, costSantim: null },
+        ],
+      },
+    },
+  });
+
+  const metrics = await getSellerBusinessMetrics(sellerId);
+  assert.equal(metrics.grossSalesSantim, 35_000, "gross sales must still include the no-cost-data line");
+  assert.equal(metrics.marginSantim, 8_000, "20000 revenue - 12000 cost (6000 x 2) from the known-cost line only");
+  assert.equal(metrics.unitsMissingCostData, 3, "the 3 units with no cost snapshot, honestly disclosed");
 });
 
 // listSellersWithPayableBalance is a GLOBAL query across every seller —

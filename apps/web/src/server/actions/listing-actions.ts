@@ -67,6 +67,7 @@ export async function createProductAction(
       optionName: String(formData.get("optionName") ?? ""),
       optionValue: String(formData.get("optionValue") ?? ""),
       allowBackorder: formData.get("allowBackorder") === "on",
+      costBirr: String(formData.get("costBirr") ?? ""),
     });
     productId = product.id;
   } catch (error) {
@@ -150,6 +151,7 @@ export async function addVariantAction(
       optionName: String(formData.get("optionName") ?? ""),
       optionValue: String(formData.get("optionValue") ?? ""),
       allowBackorder: formData.get("allowBackorder") === "on",
+      costBirr: String(formData.get("costBirr") ?? ""),
     });
   } catch (error) {
     if (error instanceof ListingError) return { ok: false, message: error.message };
@@ -184,6 +186,7 @@ export async function updateVariantAction(
       optionName: String(formData.get("optionName") ?? ""),
       optionValue: String(formData.get("optionValue") ?? ""),
       allowBackorder: formData.get("allowBackorder") === "on",
+      costBirr: String(formData.get("costBirr") ?? ""),
     });
   } catch (error) {
     if (error instanceof ListingError) return { ok: false, message: error.message };

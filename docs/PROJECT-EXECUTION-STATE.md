@@ -2177,12 +2177,82 @@ proved out this session — do not relax these just because the scope grew)
       confirmed the real variant's `active` column genuinely flipped both
       directions in the database.
 
-### Current status / where to resume (2026-08-22, commit `08333f9`)
+- [x] **Wired `Variant.costSantim` — real seller margin reporting** —
+      the last real candidate from the refined dead-field audit
+      (`ProductImage.blurHash`/`Variant.barcode` were also confirmed
+      genuinely unused on both read and write sides, but correctly left
+      alone: no existing UI/business logic depends on either, unlike
+      `costSantim`, `Variant.options`, and `Inventory.allowBackorder`,
+      each of which had real logic already depending on them.
+      `WebhookEvent.processedAt`/`error` were also investigated and
+      correctly left alone — `settlePayment`'s own module comment states
+      it always re-reads the gateway as the authoritative source,
+      completely decoupled from any specific webhook delivery, so there
+      is no honest, non-artificial moment to mark one "processed";
+      wiring it would mean inventing decorative bookkeeping with no real
+      causal meaning, not connecting genuine existing logic the way the
+      other three fixes did).
+
+      Cost is deliberately snapshotted onto a NEW `OrderLine.costSantim`
+      column, never read live from the current variant — the exact same
+      "historical record, not a view" reasoning `unitPriceSantim`/
+      `productTitle` on the same model already established: a seller's
+      real cost basis changes over time (supplier price shifts), and a
+      past sale's margin must reflect what it actually cost THEN.
+      Snapshotted in `checkout-service.ts`'s `placeOrder`, the exact
+      same line that already snapshots `unitPriceSantim`.
+
+      New seller-facing "Your cost" field on `CreateProductForm`,
+      `AddVariantForm`, and `VariantRow`, wired through
+      `CreateProductInput`/`AddVariantInput`/`UpdateVariantInput` via
+      the same `parseOptionalBirr` + "blank clears it" pattern
+      `compareAtBirr` already established — deliberately NO relationship
+      check against price (selling below cost is a real, legitimate
+      seller choice — a clearance sale is not a data error the way an
+      inverted compare-at price would be). Never exposed anywhere
+      buyer-facing.
+
+      `getSellerBusinessMetrics` now computes a real `marginSantim`
+      (sum of `lineTotal - cost*quantity`, summed ONLY across lines with
+      a real cost snapshot) plus `unitsMissingCostData`, an honest
+      disclosure count — a line with no cost snapshot is excluded from
+      the sum, never silently treated as free (which would inflate
+      margin). `marginSantim` is `null`, and the whole stat hidden, when
+      NOTHING in the window has cost data yet. Surfaced on
+      `/sell/earnings` as "Estimated margin," with the missing-units
+      count shown as a caption when it's nonzero.
+
+      6 new integration tests: 3 in `listing-service.integration.test.ts`
+      (cost writable via all three entry points and clearable back to
+      null; a cost higher than price is accepted, not rejected) and 3 in
+      `settlement-service.integration.test.ts` (real margin computed
+      correctly from mixed cost-data/no-cost-data lines, with an honest
+      missing-units count; a seller with no sales gets `marginSantim:
+      null`, not a fabricated zero). `placeOrder`'s own snapshot line
+      could not be tested end-to-end for the same documented reason
+      `checkout-service.integration.test.ts`'s own module comment gives
+      for every other test in that file (`env()` plus a real outbound
+      gateway call on success, neither of which belongs in an automated
+      test here) — the downstream `getSellerBusinessMetrics` logic that
+      actually matters was seeded and tested directly instead, the same
+      resolution this session has used consistently for every other
+      checkout-adjacent gap. Full regression (72 unit, 268 integration,
+      run twice given this touches checkout's OrderLine creation) and a
+      production build pass. Real HTTP E2E: seeded a real paid order
+      with known cost/revenue directly, confirmed the real `/sell/
+      earnings` page showed "Estimated margin: ETB 80.00" (200 revenue −
+      120 cost); created a real listing with a real cost through the
+      real seller form, confirmed it persisted and pre-fills correctly
+      on the real edit page, and confirmed the real buyer-facing PDP
+      never exposes it anywhere. All seeded data and verify scripts
+      cleaned up afterward.
+
+### Current status / where to resume (2026-08-22, commit `PENDING`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
 watched to a real, uncontested completion, per this session's own working
-discipline above. Full regression suite (typecheck, lint, 72 unit, 265
+discipline above. Full regression suite (typecheck, lint, 72 unit, 268
 integration) and a production build all pass cleanly as of this commit.
 
 Deliberately still out of scope, not oversights — both genuinely blocked
@@ -2221,7 +2291,8 @@ application-level login brute-force protection, wishlist price-drop
 alerts, bulk update-by-SKU CSV import, wiring the broken
 Variant.options multi-variant selector, wiring Inventory.allowBackorder,
 fixing the seller variant "Active" checkbox that could never turn back
-off, and more, each confirmed genuinely absent before being built). No further
+off, wiring Variant.costSantim into real seller margin reporting, and
+more, each confirmed genuinely absent before being built). No further
 specific candidate is currently queued — the systematic dead-field
 audit's one remaining finding, `User.emailVerifiedAt`, is confirmed dead
 but correctly out of scope (see the compare-at entry above for why).

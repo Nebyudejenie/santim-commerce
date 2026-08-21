@@ -13,6 +13,7 @@ interface VariantRowProps {
     sku: string;
     priceSantim: number;
     compareAtSantim: number | null;
+    costSantim: number | null;
     active: boolean;
     options: unknown;
     inventory: { onHand: number; lowStockThreshold: number; allowBackorder: boolean } | null;
@@ -27,7 +28,7 @@ export function VariantRow({ productId, variant }: VariantRowProps) {
   return (
     <form
       action={formAction}
-      style={{ display: "grid", gridTemplateColumns: "1fr 90px 90px 100px 100px 90px 90px 90px auto", gap: "var(--space-3)", alignItems: "center", padding: "var(--space-3) 0", borderBottom: "1px solid var(--border)" }}
+      style={{ display: "grid", gridTemplateColumns: "1fr 90px 90px 100px 100px 90px 90px 90px 90px auto", gap: "var(--space-3)", alignItems: "center", padding: "var(--space-3) 0", borderBottom: "1px solid var(--border)" }}
     >
       <input type="hidden" name="variantId" value={variant.id} />
       <input type="hidden" name="productId" value={productId} />
@@ -68,6 +69,16 @@ export function VariantRow({ productId, variant }: VariantRowProps) {
         aria-label="Compare-at price in ETB"
         placeholder="Was price"
         title="Shown struck through next to the real price. Leave blank for no sale pricing."
+      />
+      <input
+        name="costBirr"
+        type="number"
+        step="0.01"
+        min="0"
+        defaultValue={variant.costSantim ? (variant.costSantim / 100).toFixed(2) : ""}
+        aria-label="Your cost in ETB"
+        placeholder="Cost"
+        title="Never shown to buyers — used only for your own margin reporting under Earnings."
       />
       <input
         name="onHand"
@@ -127,7 +138,7 @@ export function AddVariantForm({ productId }: { productId: string }) {
   return (
     <form
       action={formAction}
-      style={{ display: "grid", gridTemplateColumns: "1fr 1fr 100px 100px 100px 90px auto", gap: "var(--space-3)", alignItems: "end", marginTop: "var(--space-4)" }}
+      style={{ display: "grid", gridTemplateColumns: "1fr 1fr 100px 100px 100px 100px 90px auto", gap: "var(--space-3)", alignItems: "end", marginTop: "var(--space-4)" }}
     >
       <input type="hidden" name="productId" value={productId} />
       <div className="form-field" style={{ margin: 0 }}>
@@ -151,6 +162,10 @@ export function AddVariantForm({ productId }: { productId: string }) {
       <div className="form-field" style={{ margin: 0 }}>
         <label htmlFor="new-variant-price">Price (ETB)</label>
         <input id="new-variant-price" name="priceBirr" type="number" step="0.01" min="0.01" required />
+      </div>
+      <div className="form-field" style={{ margin: 0 }}>
+        <label htmlFor="new-variant-cost">Cost (optional)</label>
+        <input id="new-variant-cost" name="costBirr" type="number" step="0.01" min="0" title="Never shown to buyers" />
       </div>
       <div className="form-field" style={{ margin: 0 }}>
         <label htmlFor="new-variant-stock">Stock</label>

@@ -66,6 +66,11 @@ export function CreateProductForm() {
         <input id="priceBirr" name="priceBirr" type="number" step="0.01" min="0.01" required />
       </div>
       <div className="form-field">
+        <label htmlFor="costBirr">Your cost (ETB, optional)</label>
+        <input id="costBirr" name="costBirr" type="number" step="0.01" min="0" />
+        <p className="form-hint">Never shown to buyers — used only for your own margin reporting under Earnings.</p>
+      </div>
+      <div className="form-field">
         <label htmlFor="onHand">Stock quantity</label>
         <input id="onHand" name="onHand" type="number" step="1" min="0" required defaultValue={0} />
       </div>

@@ -140,6 +140,53 @@ test("allowBackorder is real, writable state — set on createProduct, addVarian
   assert.equal(afterTurningOff?.variants.find((v) => v.id === firstVariantId)?.inventory?.allowBackorder, false);
 });
 
+test("costSantim is real, writable state — set on createProduct, addVariant, and updateVariant, and clearable back to null", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const sellerId = await makeSeller(`cost-${suffix}`);
+
+  const withCost = await createProduct(sellerId, { ...baseInput(`cost-a-${suffix}`), costBirr: "120.00" });
+  const fullWithCost = await getSellerProduct(sellerId, withCost.id);
+  assert.equal(fullWithCost?.variants[0]?.costSantim, 12_000);
+
+  const withoutCost = await createProduct(sellerId, baseInput(`cost-b-${suffix}`));
+  const fullWithoutCost = await getSellerProduct(sellerId, withoutCost.id);
+  assert.equal(fullWithoutCost?.variants[0]?.costSantim, null, "cost must default to unset, never a fabricated 0");
+
+  await addVariant(sellerId, withoutCost.id, {
+    title: "Second",
+    sku: `COST-${suffix}-2`,
+    priceBirr: "50.00",
+    onHand: "0",
+    costBirr: "30.00",
+  });
+  const withAddedVariant = await getSellerProduct(sellerId, withoutCost.id);
+  const added = withAddedVariant?.variants.find((v) => v.sku === `COST-${suffix}-2`);
+  assert.equal(added?.costSantim, 3_000);
+
+  const firstVariantId = fullWithoutCost!.variants[0]!.id;
+  await updateVariant(sellerId, firstVariantId, { costBirr: "40.00" });
+  const afterUpdate = await getSellerProduct(sellerId, withoutCost.id);
+  assert.equal(afterUpdate?.variants.find((v) => v.id === firstVariantId)?.costSantim, 4_000);
+
+  // Blank clears it back to null — same convention as compareAtBirr/options.
+  await updateVariant(sellerId, firstVariantId, { costBirr: "" });
+  const afterClear = await getSellerProduct(sellerId, withoutCost.id);
+  assert.equal(afterClear?.variants.find((v) => v.id === firstVariantId)?.costSantim, null);
+});
+
+test("addVariant/updateVariant accept a cost higher than the price — selling below cost is a real, legitimate seller choice", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const sellerId = await makeSeller(`costloss-${suffix}`);
+  const product = await createProduct(sellerId, baseInput(`costloss-${suffix}`));
+  const owned = await getSellerProduct(sellerId, product.id);
+  const variantId = owned!.variants[0]!.id;
+
+  // baseInput's price is 199.99 — a cost above that must not be rejected.
+  await updateVariant(sellerId, variantId, { costBirr: "999.00" });
+  const updated = await getSellerProduct(sellerId, product.id);
+  assert.equal(updated?.variants[0]?.costSantim, 99_900);
+});
+
 test("updateVariant's active flag toggles both ways — the real fix is in the FORM layer (an unchecked checkbox now genuinely submits false, see updateVariantAction), but this is the DB-level behavior that fix depends on", async () => {
   const suffix = Math.random().toString(36).slice(2, 8);
   const sellerId = await makeSeller(`activetoggle-${suffix}`);
