@@ -12,6 +12,7 @@ const TYPE_LABEL: Record<string, string> = {
   COMMISSION: "Marketplace commission",
   REFUND: "Refund",
   ADJUSTMENT: "Adjustment",
+  COUPON_DISCOUNT: "Coupon discount",
 };
 
 export default async function SellerEarningsPage() {

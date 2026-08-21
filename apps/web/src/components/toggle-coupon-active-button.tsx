@@ -5,8 +5,18 @@ import { toggleCouponActiveAction, type CouponAdminActionState } from "@/server/
 
 const INITIAL_STATE: CouponAdminActionState = { ok: false };
 
-export function ToggleCouponActiveButton({ couponId, active }: { couponId: string; active: boolean }) {
-  const [state, formAction, pending] = useActionState(toggleCouponActiveAction, INITIAL_STATE);
+type ToggleAction = (prev: CouponAdminActionState, formData: FormData) => Promise<CouponAdminActionState>;
+
+export function ToggleCouponActiveButton({
+  couponId,
+  active,
+  action = toggleCouponActiveAction,
+}: {
+  couponId: string;
+  active: boolean;
+  action?: ToggleAction;
+}) {
+  const [state, formAction, pending] = useActionState(action, INITIAL_STATE);
 
   if (state.ok) {
     return <span style={{ fontSize: "var(--text-xs)" }}>{state.message}</span>;

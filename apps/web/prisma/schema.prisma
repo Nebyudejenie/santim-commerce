@@ -71,6 +71,7 @@ model Seller {
   products     Product[]
   orderLines   OrderLine[]
   ledgerEntries SellerLedgerEntry[]
+  coupons      Coupon[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -144,6 +145,10 @@ enum LedgerEntryType {
   COMMISSION
   REFUND
   ADJUSTMENT
+  /// Always negative — a seller-issued coupon's discount comes out of that
+  /// seller's own payout, never the marketplace's. See Coupon's own
+  /// comment and settlement-service.ts's createLedgerEntriesForOrder.
+  COUPON_DISCOUNT
 }
 
 enum SellerStatus {
@@ -629,16 +634,24 @@ model Order {
 
 // ------------------------------------------------------------ promotions
 
-/// Platform-wide coupons only in v1 — admin-issued, applied to the whole
-/// cart subtotal. Seller-issued, listing-scoped promotions are real
-/// marketplace functionality but a meaningfully bigger feature (partial-cart
-/// discount math, which seller's ledger absorbs the cost); deliberately not
-/// built here. See docs/PROJECT-EXECUTION-STATE.md.
+/// Admin-issued (sellerId null) or seller-issued (sellerId set) coupons.
+/// A seller-issued coupon's discount base is that seller's OWN lines in the
+/// cart, never the whole cart subtotal — see coupon-service.ts's
+/// `relevantSubtotal` for the actual per-seller-vs-whole-cart math, and
+/// settlement-service.ts for how a seller-scoped discount comes out of
+/// THAT seller's own ledger (a new COUPON_DISCOUNT entry), never the
+/// marketplace's. An admin coupon (sellerId null) still discounts the
+/// whole cart and is still absorbed by the marketplace, unchanged from
+/// before this feature existed.
 model Coupon {
   id          String @id @default(cuid())
   /// Always stored/looked-up uppercase — see coupon-service.ts.
   code        String @unique
   description String?
+
+  /// Null = admin/platform-wide. Set = scoped to this seller's own lines only.
+  sellerId String?
+  seller   Seller? @relation(fields: [sellerId], references: [id], onDelete: Cascade)
 
   discountType  CouponDiscountType
   /// PERCENTAGE: whole points, e.g. 10 = 10%. FIXED_AMOUNT: santim.
@@ -655,7 +668,7 @@ model Coupon {
 
   validFrom  DateTime?
   validUntil DateTime?
-  /// Admin kill-switch, independent of the date window.
+  /// Admin/seller kill-switch, independent of the date window.
   active     Boolean @default(true)
 
   redemptions CouponRedemption[]
@@ -664,6 +677,7 @@ model Coupon {
   updatedAt DateTime @updatedAt
 
   @@index([active])
+  @@index([sellerId])
   @@map("coupons")
 }
 

@@ -163,7 +163,11 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
       if (input.couponCode) {
         // input.userId is guaranteed non-null here — checked at the top of
         // placeOrder before any DB work starts.
-        const redeemed = await redeemCoupon(tx, input.couponCode, input.userId as string, subtotalSantim);
+        const couponCartLines = cart.lines.map((l) => ({
+          sellerId: l.variant.product.sellerId,
+          lineTotalSantim: l.variant.priceSantim * l.quantity,
+        }));
+        const redeemed = await redeemCoupon(tx, input.couponCode, input.userId as string, couponCartLines);
         discountSantim = redeemed.discountSantim;
         redeemedCouponId = redeemed.couponId;
       }

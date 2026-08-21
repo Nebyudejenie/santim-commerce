@@ -78,6 +78,72 @@ export async function createLedgerEntriesForOrder(orderId: string): Promise<void
       throw error;
     }
   }
+
+  await createCouponDiscountEntry(order.id, order.orderNumber, order.lines);
+}
+
+/**
+ * A seller-issued coupon's discount comes out of THAT seller's own payout —
+ * never the marketplace's, and never a different seller's who happened to
+ * share the order — see coupon-service.ts's own comment. Attributed to the
+ * funding seller's FIRST line in the order (a deterministic pick, since
+ * SellerLedgerEntry requires a real orderLineId and a coupon discount is
+ * conceptually an order-level, not line-level, fact) — correctness only
+ * requires the SUM across that seller's entries be right, and the
+ * CouponRedemption row independently records the true originating fact
+ * (which coupon, whose seller, how much) for audit regardless of which
+ * line the entry is attached to.
+ *
+ * An admin/platform-wide coupon (Coupon.sellerId null) creates no entry
+ * here at all — the marketplace absorbs that discount, unchanged from
+ * before this feature existed.
+ */
+async function createCouponDiscountEntry(
+  orderId: string,
+  orderNumber: string,
+  lines: readonly { id: string; sellerId: string; createdAt: Date }[],
+): Promise<void> {
+  const redemption = await prisma.couponRedemption.findUnique({
+    where: { orderId },
+    include: { coupon: { select: { sellerId: true, code: true } } },
+  });
+  if (!redemption || !redemption.coupon.sellerId || redemption.discountSantim <= 0) return;
+
+  const fundingSellerId = redemption.coupon.sellerId;
+  const sellerLines = lines.filter((l) => l.sellerId === fundingSellerId);
+  if (sellerLines.length === 0) {
+    // Should be unreachable — coupon-service.ts's relevantSubtotal already
+    // requires the funding seller to have real lines in the cart before a
+    // redemption is even allowed. Logged, not thrown: settlement must never
+    // fail an otherwise-successful order over an inconsistency this deep.
+    logger.error("settlement.coupon_discount_seller_not_in_order", { orderId, fundingSellerId });
+    return;
+  }
+  const [firstLine] = sellerLines.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+
+  try {
+    await prisma.sellerLedgerEntry.create({
+      data: {
+        sellerId: fundingSellerId,
+        orderId,
+        orderLineId: firstLine!.id,
+        type: "COUPON_DISCOUNT",
+        amountSantim: -redemption.discountSantim,
+        description: `Coupon ${redemption.coupon.code} discount (order ${orderNumber})`,
+      },
+    });
+    logger.info("settlement.coupon_discount_entry_created", {
+      orderId,
+      sellerId: fundingSellerId,
+      amountSantim: -redemption.discountSantim,
+    });
+  } catch (error) {
+    if (isUniqueViolation(error)) {
+      logger.info("settlement.coupon_discount_already_settled", { orderId, sellerId: fundingSellerId });
+      return;
+    }
+    throw error;
+  }
 }
 
 export interface SellerBalance {

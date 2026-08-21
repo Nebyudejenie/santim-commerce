@@ -480,6 +480,63 @@ rather than inventing busywork.
       top-seller entry all match the real seeded figures exactly (1,234.56
       ETB / 123.46 ETB, computed from 123,456 santim at a real 10%
       commission rate).
+- [x] **Seller-issued coupons** — coupons were previously admin-only,
+      platform-wide, applied to the whole cart subtotal; schema.prisma's own
+      comment on `Coupon` explicitly named this exact gap as deliberately
+      deferred ("partial-cart discount math, which seller's ledger absorbs
+      the cost — a meaningfully bigger feature"). New `Coupon.sellerId`
+      (nullable — null keeps every existing admin coupon's behavior exactly
+      unchanged) plus a new `COUPON_DISCOUNT` ledger entry type.
+
+      The real complexity this feature is actually about: a seller-issued
+      coupon must discount ONLY that seller's own lines in the cart, never
+      a different seller's who happens to share the same order — funding a
+      stranger's discount would be a real accounting bug, not a rounding
+      nit. `coupon-service.ts`'s `relevantSubtotal` is the one function
+      that decides whole-cart (admin coupon) vs. seller-scoped subtotal
+      (seller coupon) for both the minimum-spend check and the discount
+      calculation — every call site (`redeemCoupon`, `previewCouponDiscount`)
+      now takes a per-seller cart-line breakdown instead of a single
+      number. `checkout-service.ts`'s real, authoritative redemption
+      already derives this breakdown server-side from the real cart, as it
+      always did; only the checkout FORM's non-authoritative preview now
+      also needs it, sent as a JSON hidden field (still non-authoritative —
+      the real enforcement is checkout-service.ts's own server-derived
+      cart, unchanged).
+
+      On settlement, a seller-scoped redemption gets one additional
+      COUPON_DISCOUNT ledger entry (always negative) against the funding
+      seller specifically — attributed to that seller's first line in the
+      order (SellerLedgerEntry requires a real orderLineId; a coupon
+      discount is an order-level, not line-level, fact, and the
+      CouponRedemption row is the true audit record regardless of which
+      line the entry is attached to). An admin/platform-wide coupon
+      redemption creates no such entry at all — the marketplace still
+      absorbs that discount, unchanged from before this feature existed.
+      Idempotent under the outbox's real redelivery via the same
+      `@@unique([orderLineId, type])` constraint every other ledger entry
+      already relies on.
+
+      New `/sell/coupons` page (ownership-scoped toggle — a cross-seller
+      attempt is indistinguishable from not found, same as every other
+      ownership-scoped mutation this session); `CreateCouponForm`/
+      `ToggleCouponActiveButton` made reusable between the admin and seller
+      pages via an injected Server Action rather than duplicating the form.
+      `listCoupons()` (admin) now excludes seller-issued coupons — admin
+      manages platform coupons, sellers manage their own; a combined
+      oversight view is a natural, deliberately deferred follow-up.
+
+      13 new tests (5 in coupon-service — multi-seller scoping, the
+      seller-not-in-cart rejection, seller-scoped minSubtotalSantim, admin/
+      seller list separation, ownership-scoped toggle; 3 in
+      settlement-service — the funding seller's entry, an unrelated
+      seller sharing the order staying completely unaffected, redelivery
+      idempotency, and the admin-coupon-creates-no-entry case) — all 20
+      pre-existing coupon tests still pass unchanged, confirming admin
+      coupons kept their exact original behavior. Verified end-to-end over
+      real HTTP: a real seller-issued coupon renders on `/sell/coupons`;
+      the real checkout page's hidden cartLines field carries the real
+      seller id and line total needed to scope the preview correctly.
 
 ### Working discipline for this mandate (carried over from what already
 proved out this session — do not relax these just because the scope grew)

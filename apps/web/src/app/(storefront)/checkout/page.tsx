@@ -25,6 +25,7 @@ export default async function CheckoutPage() {
             checkout-service.ts calls server-side — see that component. */}
         <CheckoutForm
           subtotalSantim={cart.subtotalSantim}
+          cartLines={cart.lines.map((l) => ({ sellerId: l.sellerId, lineTotalSantim: l.lineTotalSantim }))}
           isSignedIn={Boolean(sessionUser)}
           savedAddresses={savedAddresses.map((a) => ({
             id: a.id,

@@ -22,12 +22,23 @@ export interface SavedAddressOption {
   readonly landmark: string | null;
 }
 
+export interface CartLineForCouponPreview {
+  readonly sellerId: string;
+  readonly lineTotalSantim: number;
+}
+
 export function CheckoutForm({
   subtotalSantim,
+  cartLines,
   isSignedIn,
   savedAddresses = [],
 }: {
   subtotalSantim: number;
+  /** Per-seller breakdown so a seller-issued coupon previews against only
+   * that seller's own lines, never the whole cart — see coupon-service.ts's
+   * own comment on why a seller must never end up funding a discount on
+   * someone else's items. */
+  cartLines: CartLineForCouponPreview[];
   isSignedIn: boolean;
   savedAddresses?: SavedAddressOption[];
 }) {
@@ -86,7 +97,7 @@ export function CheckoutForm({
               placeholder="e.g. WELCOME10"
               style={{ flex: 1 }}
             />
-            <input type="hidden" form="coupon-preview-form" name="subtotalSantim" value={subtotalSantim} />
+            <input type="hidden" form="coupon-preview-form" name="cartLines" value={JSON.stringify(cartLines)} />
             <button
               type="submit"
               form="coupon-preview-form"

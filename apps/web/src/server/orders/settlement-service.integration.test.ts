@@ -129,7 +129,138 @@ test("a multi-seller order settles each seller's own commission rate independent
   assert.equal(highBalance.payableSantim, 8_000, "20% commission on 10000 = 2000 deducted — must not have used the other seller's 5% rate");
 });
 
+test("a seller-issued coupon's discount comes out of THAT seller's own payout, never an unrelated seller sharing the order", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const fundingSeller = await makeSeller(`coupon-funder-${suffix}`, 1000); // 10%
+  const otherSeller = await makeSeller(`coupon-other-${suffix}`, 1000);
+  const buyer = await prisma.user.create({ data: { email: `ledger-test-coupon-buyer-${suffix}@example.et`, role: "CUSTOMER" } });
+
+  const coupon = await prisma.coupon.create({
+    data: { code: `LEDGERCPN-${suffix}`, discountType: "FIXED_AMOUNT", discountValue: 2_000, sellerId: fundingSeller },
+  });
+
+  const order = await prisma.order.create({
+    data: {
+      orderNumber: `SC-LEDGERCOUPON${suffix}`.toUpperCase(),
+      userId: buyer.id,
+      email: "buyer@example.et",
+      phone: "+251900000000",
+      status: "PAID",
+      subtotalSantim: 20_000,
+      discountSantim: 2_000,
+      totalSantim: 18_000,
+      paidAt: new Date(),
+      lines: {
+        create: [
+          { sellerId: fundingSeller, sku: `CPN-${suffix}`, productTitle: "Discounted item", variantTitle: "Default", unitPriceSantim: 10_000, quantity: 1, lineTotalSantim: 10_000 },
+          { sellerId: otherSeller, sku: `OTH-${suffix}`, productTitle: "Unrelated item", variantTitle: "Default", unitPriceSantim: 10_000, quantity: 1, lineTotalSantim: 10_000 },
+        ],
+      },
+    },
+  });
+  await prisma.couponRedemption.create({
+    data: { couponId: coupon.id, userId: buyer.id, orderId: order.id, discountSantim: 2_000 },
+  });
+
+  await createLedgerEntriesForOrder(order.id);
+
+  const funderEntries = await listSellerLedgerEntries(fundingSeller);
+  assert.equal(funderEntries.length, 3, "SALE, COMMISSION, and the new COUPON_DISCOUNT entry");
+  const discountEntry = funderEntries.find((e) => e.type === "COUPON_DISCOUNT")!;
+  assert.ok(discountEntry, "the funding seller must have a real COUPON_DISCOUNT entry");
+  assert.equal(discountEntry.amountSantim, -2_000, "always negative — it comes out of the seller's own payout");
+
+  const funderBalance = await getSellerBalance(fundingSeller);
+  assert.equal(funderBalance.payableSantim, 9_000 - 2_000, "sale minus commission minus the coupon discount");
+
+  const otherEntries = await listSellerLedgerEntries(otherSeller);
+  assert.equal(otherEntries.length, 2, "the unrelated seller must have ONLY their normal SALE+COMMISSION, no discount entry at all");
+  assert.ok(!otherEntries.some((e) => e.type === "COUPON_DISCOUNT"));
+  const otherBalance = await getSellerBalance(otherSeller);
+  assert.equal(otherBalance.payableSantim, 9_000, "an unrelated seller sharing the order must be completely unaffected");
+});
+
+test("a redelivered outbox message does not double-apply the COUPON_DISCOUNT entry", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const fundingSeller = await makeSeller(`coupon-redeliv-${suffix}`, 1000);
+  const buyer = await prisma.user.create({ data: { email: `ledger-test-coupon-redeliv-buyer-${suffix}@example.et`, role: "CUSTOMER" } });
+
+  const coupon = await prisma.coupon.create({
+    data: { code: `LEDGERCPNREDELIV-${suffix}`, discountType: "FIXED_AMOUNT", discountValue: 1_000, sellerId: fundingSeller },
+  });
+
+  const order = await prisma.order.create({
+    data: {
+      orderNumber: `SC-LEDGERCPNREDELIV${suffix}`.toUpperCase(),
+      userId: buyer.id,
+      email: "buyer@example.et",
+      phone: "+251900000000",
+      status: "PAID",
+      subtotalSantim: 5_000,
+      discountSantim: 1_000,
+      totalSantim: 4_000,
+      paidAt: new Date(),
+      lines: {
+        create: [
+          { sellerId: fundingSeller, sku: `CPNR-${suffix}`, productTitle: "Item", variantTitle: "Default", unitPriceSantim: 5_000, quantity: 1, lineTotalSantim: 5_000 },
+        ],
+      },
+    },
+  });
+  await prisma.couponRedemption.create({
+    data: { couponId: coupon.id, userId: buyer.id, orderId: order.id, discountSantim: 1_000 },
+  });
+
+  await createLedgerEntriesForOrder(order.id);
+  await createLedgerEntriesForOrder(order.id); // the redelivery
+
+  const entries = await listSellerLedgerEntries(fundingSeller);
+  const discountEntries = entries.filter((e) => e.type === "COUPON_DISCOUNT");
+  assert.equal(discountEntries.length, 1, "a redelivered message must not create a second discount entry");
+});
+
+test("an admin/platform-wide coupon redemption creates NO COUPON_DISCOUNT entry — the marketplace absorbs it, unchanged", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const sellerId = await makeSeller(`coupon-admin-${suffix}`, 1000);
+  const buyer = await prisma.user.create({ data: { email: `ledger-test-coupon-admin-buyer-${suffix}@example.et`, role: "CUSTOMER" } });
+
+  const coupon = await prisma.coupon.create({
+    data: { code: `LEDGERCPNADMIN-${suffix}`, discountType: "FIXED_AMOUNT", discountValue: 1_500 }, // sellerId null
+  });
+
+  const order = await prisma.order.create({
+    data: {
+      orderNumber: `SC-LEDGERCPNADMIN${suffix}`.toUpperCase(),
+      userId: buyer.id,
+      email: "buyer@example.et",
+      phone: "+251900000000",
+      status: "PAID",
+      subtotalSantim: 8_000,
+      discountSantim: 1_500,
+      totalSantim: 6_500,
+      paidAt: new Date(),
+      lines: {
+        create: [
+          { sellerId, sku: `CPNA-${suffix}`, productTitle: "Item", variantTitle: "Default", unitPriceSantim: 8_000, quantity: 1, lineTotalSantim: 8_000 },
+        ],
+      },
+    },
+  });
+  await prisma.couponRedemption.create({
+    data: { couponId: coupon.id, userId: buyer.id, orderId: order.id, discountSantim: 1_500 },
+  });
+
+  await createLedgerEntriesForOrder(order.id);
+
+  const entries = await listSellerLedgerEntries(sellerId);
+  assert.equal(entries.length, 2, "only the normal SALE+COMMISSION — an admin coupon must never touch the seller's ledger");
+  const balance = await getSellerBalance(sellerId);
+  assert.equal(balance.payableSantim, 7_200, "8000 - 10% commission (800), completely unaffected by the platform-funded discount");
+});
+
 test.after(async () => {
+  await prisma.couponRedemption.deleteMany({ where: { order: { orderNumber: { startsWith: "SC-LEDGER" } } } });
+  await prisma.coupon.deleteMany({ where: { code: { startsWith: "LEDGERCPN" } } });
   await prisma.sellerLedgerEntry.deleteMany({ where: { order: { orderNumber: { startsWith: "SC-LEDGER" } } } });
   await prisma.orderLine.deleteMany({ where: { order: { orderNumber: { startsWith: "SC-LEDGER" } } } });
   await prisma.order.deleteMany({ where: { orderNumber: { startsWith: "SC-LEDGER" } } });

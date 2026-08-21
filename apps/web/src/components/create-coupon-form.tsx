@@ -5,8 +5,14 @@ import { createCouponAction, type CouponAdminActionState } from "@/server/action
 
 const INITIAL_STATE: CouponAdminActionState = { ok: false };
 
-export function CreateCouponForm() {
-  const [state, formAction, pending] = useActionState(createCouponAction, INITIAL_STATE);
+type CouponAction = (prev: CouponAdminActionState, formData: FormData) => Promise<CouponAdminActionState>;
+
+/** Shared between the admin (platform-wide) and seller-console coupon
+ * pages — only which Server Action gets called differs, since createCoupon
+ * itself already handles the optional sellerId. Defaults to the admin
+ * action so the existing /admin/coupons usage needs no change. */
+export function CreateCouponForm({ action = createCouponAction }: { action?: CouponAction }) {
+  const [state, formAction, pending] = useActionState(action, INITIAL_STATE);
   const [discountType, setDiscountType] = useState<"PERCENTAGE" | "FIXED_AMOUNT">("PERCENTAGE");
 
   return (

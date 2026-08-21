@@ -49,6 +49,9 @@ export default async function SellPage() {
                 <Link href="/sell/earnings" className="btn btn--secondary" style={{ flex: 1 }}>
                   Your earnings
                 </Link>
+                <Link href="/sell/coupons" className="btn btn--secondary" style={{ flex: 1 }}>
+                  Your coupons
+                </Link>
                 <Link href="/sell/reputation" className="btn btn--secondary" style={{ flex: 1 }}>
                   Your reputation
                 </Link>

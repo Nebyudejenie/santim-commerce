@@ -14,7 +14,7 @@ export async function getCartDetail() {
         include: {
           variant: {
             include: {
-              product: { select: { title: true, slug: true, heroImage: true } },
+              product: { select: { title: true, slug: true, heroImage: true, sellerId: true } },
               inventory: true,
             },
           },
@@ -35,6 +35,7 @@ export async function getCartDetail() {
       : 0;
     return {
       variantId: line.variantId,
+      sellerId: line.variant.product.sellerId,
       productTitle: line.variant.product.title,
       productSlug: line.variant.product.slug,
       variantTitle: line.variant.title,

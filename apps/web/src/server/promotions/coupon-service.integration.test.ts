@@ -16,12 +16,28 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { PrismaClient } from "@prisma/client";
-import { createCoupon, listCoupons, redeemCoupon, setCouponActive, CouponError } from "./coupon-service.ts";
+import {
+  createCoupon,
+  listCoupons,
+  listCouponsForSeller,
+  redeemCoupon,
+  setCouponActive,
+  setCouponActiveAsSeller,
+  CouponError,
+} from "./coupon-service.ts";
 
 const prisma = new PrismaClient();
 
 function randomSuffix(): string {
   return Math.random().toString(36).slice(2, 8).toUpperCase();
+}
+
+/** These pre-existing tests exercise admin/platform-wide coupons (sellerId
+ * null), where relevantSubtotal sums every cart line regardless of seller —
+ * a single line with an arbitrary sellerId reproduces the exact same
+ * "whole cart subtotal" behavior these tests always relied on. */
+function cartLinesOf(subtotalSantim: number) {
+  return [{ sellerId: "any-seller-id", lineTotalSantim: subtotalSantim }];
 }
 
 async function makeOrder(suffix: string, userId: string) {
@@ -44,11 +60,19 @@ async function makeBuyer(suffix: string) {
   return user.id;
 }
 
+async function makeSeller(suffix: string) {
+  const owner = await prisma.user.create({ data: { email: `coupon-seller-${suffix}@example.et`, role: "CUSTOMER" } });
+  const seller = await prisma.seller.create({
+    data: { ownerId: owner.id, storeName: `Coupon Test Seller ${suffix}`, slug: `coupon-test-seller-${suffix}`, status: "APPROVED" },
+  });
+  return seller.id;
+}
+
 /** Mirrors checkout-service.ts's placeOrder: redeem inside a transaction,
  * then create the CouponRedemption row against a real order. */
 async function redeemForOrder(code: string, userId: string, subtotalSantim: number, orderId: string) {
   return prisma.$transaction(async (tx) => {
-    const result = await redeemCoupon(tx, code, userId, subtotalSantim);
+    const result = await redeemCoupon(tx, code, userId, cartLinesOf(subtotalSantim));
     await tx.couponRedemption.create({
       data: { couponId: result.couponId, userId, orderId, discountSantim: result.discountSantim },
     });
@@ -62,7 +86,7 @@ test("a nonexistent coupon code is rejected", async () => {
 
   await prisma.$transaction(async (tx) => {
     await assert.rejects(
-      () => redeemCoupon(tx, `DOES-NOT-EXIST-${suffix}`, userId, 10_000),
+      () => redeemCoupon(tx, `DOES-NOT-EXIST-${suffix}`, userId, cartLinesOf(10_000)),
       (err: unknown) => err instanceof CouponError && /doesn't exist/.test(err.message),
     );
   });
@@ -77,7 +101,7 @@ test("an inactive coupon is rejected", async () => {
 
   await prisma.$transaction(async (tx) => {
     await assert.rejects(
-      () => redeemCoupon(tx, `INACTIVE-${suffix}`, userId, 10_000),
+      () => redeemCoupon(tx, `INACTIVE-${suffix}`, userId, cartLinesOf(10_000)),
       (err: unknown) => err instanceof CouponError && /no longer active/.test(err.message),
     );
   });
@@ -97,7 +121,7 @@ test("an expired coupon is rejected", async () => {
 
   await prisma.$transaction(async (tx) => {
     await assert.rejects(
-      () => redeemCoupon(tx, `EXPIRED-${suffix}`, userId, 10_000),
+      () => redeemCoupon(tx, `EXPIRED-${suffix}`, userId, cartLinesOf(10_000)),
       (err: unknown) => err instanceof CouponError && /expired/.test(err.message),
     );
   });
@@ -117,7 +141,7 @@ test("a coupon not yet valid (future validFrom) is rejected", async () => {
 
   await prisma.$transaction(async (tx) => {
     await assert.rejects(
-      () => redeemCoupon(tx, `FUTURE-${suffix}`, userId, 10_000),
+      () => redeemCoupon(tx, `FUTURE-${suffix}`, userId, cartLinesOf(10_000)),
       (err: unknown) => err instanceof CouponError && /isn't valid yet/.test(err.message),
     );
   });
@@ -132,7 +156,7 @@ test("a coupon below its minimum subtotal is rejected", async () => {
 
   await prisma.$transaction(async (tx) => {
     await assert.rejects(
-      () => redeemCoupon(tx, `MINSUB-${suffix}`, userId, 10_000),
+      () => redeemCoupon(tx, `MINSUB-${suffix}`, userId, cartLinesOf(10_000)),
       (err: unknown) => err instanceof CouponError && /at least/.test(err.message),
     );
   });
@@ -146,7 +170,7 @@ test("a coupon code is matched case-insensitively and trimmed", async () => {
   });
 
   const result = await prisma.$transaction((tx) =>
-    redeemCoupon(tx, `  mixedcase-${suffix.toLowerCase()}  `, userId, 10_000),
+    redeemCoupon(tx, `  mixedcase-${suffix.toLowerCase()}  `, userId, cartLinesOf(10_000)),
   );
   assert.equal(result.discountSantim, 1_000);
 });
@@ -163,10 +187,10 @@ test("PERCENTAGE and FIXED_AMOUNT discounts compute correctly, capped by maxDisc
     data: { code: `FIXED-${suffix}`, discountType: "FIXED_AMOUNT", discountValue: 2_000 },
   });
 
-  const pctResult = await prisma.$transaction((tx) => redeemCoupon(tx, `PCT-${suffix}`, userId1, 10_000));
+  const pctResult = await prisma.$transaction((tx) => redeemCoupon(tx, `PCT-${suffix}`, userId1, cartLinesOf(10_000)));
   assert.equal(pctResult.discountSantim, 3_000, "50% of 10000 is 5000, but capped at 3000");
 
-  const fixedResult = await prisma.$transaction((tx) => redeemCoupon(tx, `FIXED-${suffix}`, userId2, 10_000));
+  const fixedResult = await prisma.$transaction((tx) => redeemCoupon(tx, `FIXED-${suffix}`, userId2, cartLinesOf(10_000)));
   assert.equal(fixedResult.discountSantim, 2_000);
 });
 
@@ -310,10 +334,140 @@ test("setCouponActive toggles visibility and listCoupons reflects real redemptio
 
   await prisma.$transaction(async (tx) => {
     await assert.rejects(
-      () => redeemCoupon(tx, `TOGGLE-${suffix}`, userId, 10_000),
+      () => redeemCoupon(tx, `TOGGLE-${suffix}`, userId, cartLinesOf(10_000)),
       (err: unknown) => err instanceof CouponError && /no longer active/.test(err.message),
     );
   });
+});
+
+test("a seller-scoped coupon discounts ONLY that seller's own lines in a multi-seller cart", async () => {
+  const suffix = randomSuffix();
+  const userId = await makeBuyer(suffix);
+  const sellerA = await makeSeller(`${suffix}-a`);
+  const sellerB = await makeSeller(`${suffix}-b`);
+
+  await createCoupon({
+    code: `SELLERPCT-${suffix}`,
+    discountType: "PERCENTAGE",
+    discountValueRaw: "50",
+    sellerId: sellerA,
+  });
+
+  // A real multi-seller cart: 10000 from seller A, 10000 from seller B.
+  const cartLines = [
+    { sellerId: sellerA, lineTotalSantim: 10_000 },
+    { sellerId: sellerB, lineTotalSantim: 10_000 },
+  ];
+
+  const result = await prisma.$transaction((tx) => redeemCoupon(tx, `SELLERPCT-${suffix}`, userId, cartLines));
+  assert.equal(
+    result.discountSantim,
+    5_000,
+    "50% off must apply to seller A's own 10000 subtotal only, never the 20000 whole-cart total",
+  );
+});
+
+test("a seller-scoped coupon is rejected when that seller isn't represented in the cart at all", async () => {
+  const suffix = randomSuffix();
+  const userId = await makeBuyer(suffix);
+  const sellerA = await makeSeller(`${suffix}-a`);
+  const sellerB = await makeSeller(`${suffix}-b`);
+
+  await createCoupon({
+    code: `SELLERONLY-${suffix}`,
+    discountType: "FIXED_AMOUNT",
+    discountValueRaw: "10.00",
+    sellerId: sellerA,
+  });
+
+  const cartLines = [{ sellerId: sellerB, lineTotalSantim: 10_000 }]; // only seller B, not A
+
+  await prisma.$transaction(async (tx) => {
+    await assert.rejects(
+      () => redeemCoupon(tx, `SELLERONLY-${suffix}`, userId, cartLines),
+      (err: unknown) => err instanceof CouponError && /isn't in your cart/.test(err.message),
+    );
+  });
+});
+
+test("a seller-scoped coupon's minSubtotalSantim is checked against that seller's own subtotal, not the whole cart", async () => {
+  const suffix = randomSuffix();
+  const userId = await makeBuyer(suffix);
+  const sellerA = await makeSeller(`${suffix}-a`);
+  const sellerB = await makeSeller(`${suffix}-b`);
+
+  await createCoupon({
+    code: `SELLERMIN-${suffix}`,
+    discountType: "FIXED_AMOUNT",
+    discountValueRaw: "5.00",
+    minSubtotalBirr: "150.00", // 15000 santim
+    sellerId: sellerA,
+  });
+
+  // Seller A only has 10000; seller B's 10000 must not help seller A's coupon clear its minimum.
+  const cartLines = [
+    { sellerId: sellerA, lineTotalSantim: 10_000 },
+    { sellerId: sellerB, lineTotalSantim: 10_000 },
+  ];
+
+  await prisma.$transaction(async (tx) => {
+    await assert.rejects(
+      () => redeemCoupon(tx, `SELLERMIN-${suffix}`, userId, cartLines),
+      (err: unknown) => err instanceof CouponError && /at least/.test(err.message),
+    );
+  });
+});
+
+test("listCoupons (admin) excludes seller coupons; listCouponsForSeller returns only that seller's own", async () => {
+  const suffix = randomSuffix();
+  const sellerA = await makeSeller(`${suffix}-a`);
+  const sellerB = await makeSeller(`${suffix}-b`);
+
+  const adminCoupon = await createCoupon({ code: `ADMINONLY-${suffix}`, discountType: "PERCENTAGE", discountValueRaw: "10" });
+  const sellerACoupon = await createCoupon({
+    code: `SELLERLIST-A-${suffix}`,
+    discountType: "PERCENTAGE",
+    discountValueRaw: "10",
+    sellerId: sellerA,
+  });
+  await createCoupon({
+    code: `SELLERLIST-B-${suffix}`,
+    discountType: "PERCENTAGE",
+    discountValueRaw: "10",
+    sellerId: sellerB,
+  });
+
+  const adminList = await listCoupons();
+  assert.ok(adminList.some((c) => c.id === adminCoupon.id));
+  assert.ok(!adminList.some((c) => c.id === sellerACoupon.id), "listCoupons must not surface seller-issued coupons");
+
+  const sellerAList = await listCouponsForSeller(sellerA);
+  assert.equal(sellerAList.length, 1);
+  assert.equal(sellerAList[0]!.id, sellerACoupon.id);
+});
+
+test("a seller can only toggle their OWN coupon — a cross-seller attempt is indistinguishable from not found", async () => {
+  const suffix = randomSuffix();
+  const sellerA = await makeSeller(`${suffix}-a`);
+  const sellerB = await makeSeller(`${suffix}-b`);
+
+  const coupon = await createCoupon({
+    code: `SELLERTOGGLE-${suffix}`,
+    discountType: "PERCENTAGE",
+    discountValueRaw: "10",
+    sellerId: sellerA,
+  });
+
+  await assert.rejects(
+    () => setCouponActiveAsSeller(sellerB, coupon.id, false),
+    (err: unknown) => err instanceof CouponError && /not found/.test(err.message),
+  );
+  const untouched = await prisma.coupon.findUniqueOrThrow({ where: { id: coupon.id } });
+  assert.equal(untouched.active, true, "a cross-seller attempt must not have changed anything");
+
+  await setCouponActiveAsSeller(sellerA, coupon.id, false);
+  const afterRealOwner = await prisma.coupon.findUniqueOrThrow({ where: { id: coupon.id } });
+  assert.equal(afterRealOwner.active, false, "the real owner's toggle must actually work");
 });
 
 test.after(async () => {
@@ -338,9 +492,17 @@ test.after(async () => {
         { code: { startsWith: "OVER100-" } },
         { code: { startsWith: "BADRANGE-" } },
         { code: { startsWith: "TOGGLE-" } },
+        { code: { startsWith: "SELLERPCT-" } },
+        { code: { startsWith: "SELLERONLY-" } },
+        { code: { startsWith: "SELLERMIN-" } },
+        { code: { startsWith: "ADMINONLY-" } },
+        { code: { startsWith: "SELLERLIST-" } },
+        { code: { startsWith: "SELLERTOGGLE-" } },
       ],
     },
   });
   await prisma.user.deleteMany({ where: { email: { startsWith: "coupon-buyer-" } } });
+  await prisma.seller.deleteMany({ where: { slug: { startsWith: "coupon-test-seller-" } } });
+  await prisma.user.deleteMany({ where: { email: { startsWith: "coupon-seller-" } } });
   await prisma.$disconnect();
 });

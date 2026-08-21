@@ -1,5 +1,15 @@
 /**
- * Coupons: admin-issued, platform-wide, one redemption per customer.
+ * Coupons: admin-issued (platform-wide) or seller-issued (scoped to that
+ * seller's own lines), one redemption per customer.
+ *
+ * A seller-issued coupon's discount base is that seller's OWN subtotal
+ * within the cart — never the whole cart. A 20%-off coupon from Seller A
+ * must never discount Seller B's items sitting in the same cart; Seller A
+ * is the one funding this discount (see settlement-service.ts's
+ * COUPON_DISCOUNT entry), and funding a stranger's items would be a real
+ * accounting bug, not a rounding nit. `relevantSubtotal` below is the one
+ * function that decides which subtotal — whole-cart or seller-scoped —
+ * governs both the minimum-spend check and the discount calculation.
  *
  * `redeemCoupon` is meant to be called from INSIDE checkout-service.ts's
  * order-creation transaction, before `totalSantim` is computed — not as a
@@ -50,9 +60,22 @@ export interface RedeemedCoupon {
   readonly discountSantim: number;
 }
 
+export interface CartLineForCoupon {
+  readonly sellerId: string;
+  readonly lineTotalSantim: number;
+}
+
+/** Whole-cart subtotal for an admin coupon; that one seller's own lines only
+ * for a seller-scoped coupon — see this module's own comment on why a
+ * seller must never end up funding a discount on someone else's items. */
+function relevantSubtotal(sellerId: string | null, cartLines: readonly CartLineForCoupon[]): number {
+  const lines = sellerId ? cartLines.filter((l) => l.sellerId === sellerId) : cartLines;
+  return lines.reduce((sum, l) => sum + l.lineTotalSantim, 0);
+}
+
 /** Shared, read-only validation between the real redemption path and the
  * checkout UI's preview path — see `previewCouponDiscount` below. */
-async function findValidCoupon(db: Tx, code: string, userId: string, subtotalSantim: number) {
+async function findValidCoupon(db: Tx, code: string, userId: string, cartLines: readonly CartLineForCoupon[]) {
   const normalizedCode = code.trim().toUpperCase();
   if (normalizedCode.length === 0) {
     throw new CouponError("Enter a coupon code.");
@@ -73,9 +96,15 @@ async function findValidCoupon(db: Tx, code: string, userId: string, subtotalSan
   if (coupon.validUntil && now > coupon.validUntil) {
     throw new CouponError("This coupon has expired.");
   }
+
+  const subtotalSantim = relevantSubtotal(coupon.sellerId, cartLines);
+  if (coupon.sellerId && subtotalSantim === 0) {
+    throw new CouponError("This coupon only applies to items from a specific seller that isn't in your cart.");
+  }
   if (subtotalSantim < coupon.minSubtotalSantim) {
     const minBirr = (coupon.minSubtotalSantim / 100).toFixed(2);
-    throw new CouponError(`This coupon requires a subtotal of at least ${minBirr} ETB.`);
+    const scope = coupon.sellerId ? "eligible items" : "subtotal";
+    throw new CouponError(`This coupon requires a ${scope} of at least ${minBirr} ETB.`);
   }
 
   const existingRedemption = await db.couponRedemption.findUnique({
@@ -85,21 +114,21 @@ async function findValidCoupon(db: Tx, code: string, userId: string, subtotalSan
     throw new CouponError("You've already used this coupon.");
   }
 
-  return coupon;
+  return { coupon, subtotalSantim };
 }
 
 /**
- * Validates the coupon against `now` and `subtotalSantim`, and — if it has
- * a total redemption cap — atomically reserves one redemption. Does NOT
- * create the `CouponRedemption` row (see module comment for why).
+ * Validates the coupon against `now` and the cart, and — if it has a total
+ * redemption cap — atomically reserves one redemption. Does NOT create the
+ * `CouponRedemption` row (see module comment for why).
  */
 export async function redeemCoupon(
   tx: Tx,
   code: string,
   userId: string,
-  subtotalSantim: number,
+  cartLines: readonly CartLineForCoupon[],
 ): Promise<RedeemedCoupon> {
-  const coupon = await findValidCoupon(tx, code, userId, subtotalSantim);
+  const { coupon, subtotalSantim } = await findValidCoupon(tx, code, userId, cartLines);
 
   if (coupon.redemptionsRemaining != null) {
     const result = await tx.coupon.updateMany({
@@ -136,9 +165,9 @@ export interface CouponPreview {
 export async function previewCouponDiscount(
   code: string,
   userId: string,
-  subtotalSantim: number,
+  cartLines: readonly CartLineForCoupon[],
 ): Promise<CouponPreview> {
-  const coupon = await findValidCoupon(prisma, code, userId, subtotalSantim);
+  const { coupon, subtotalSantim } = await findValidCoupon(prisma, code, userId, cartLines);
   const discountSantim = computeCouponDiscountSantim(subtotalSantim, {
     discountType: coupon.discountType,
     discountValue: coupon.discountValue,
@@ -160,6 +189,8 @@ export interface CreateCouponInput {
   readonly redemptionsRemaining?: number | null;
   readonly validFrom?: Date | null;
   readonly validUntil?: Date | null;
+  /** Undefined/null = admin/platform-wide. Set = scoped to that seller's own lines. */
+  readonly sellerId?: string | null;
 }
 
 export async function createCoupon(input: CreateCouponInput) {
@@ -198,6 +229,7 @@ export async function createCoupon(input: CreateCouponInput) {
       data: {
         code: normalizedCode,
         description: input.description,
+        sellerId: input.sellerId ?? null,
         discountType: input.discountType,
         discountValue,
         maxDiscountSantim,
@@ -215,12 +247,36 @@ export async function createCoupon(input: CreateCouponInput) {
   }
 }
 
+/** Admin-only — any coupon, admin- or seller-issued. */
 export async function setCouponActive(couponId: string, active: boolean): Promise<void> {
   await prisma.coupon.update({ where: { id: couponId }, data: { active } });
 }
 
+/**
+ * A seller may only toggle their OWN coupons — ownership via the WHERE
+ * clause itself, not a separate read-then-check. A cross-seller attempt
+ * (or a bare admin coupon, sellerId null) simply matches zero rows, the
+ * same "indistinguishable from not existing" outcome every other
+ * ownership-scoped mutation in this codebase produces.
+ */
+export async function setCouponActiveAsSeller(sellerId: string, couponId: string, active: boolean): Promise<void> {
+  const result = await prisma.coupon.updateMany({ where: { id: couponId, sellerId }, data: { active } });
+  if (result.count !== 1) {
+    throw new CouponError("Coupon not found.");
+  }
+}
+
 export async function listCoupons() {
   return prisma.coupon.findMany({
+    where: { sellerId: null },
+    orderBy: { createdAt: "desc" },
+    include: { _count: { select: { redemptions: true } } },
+  });
+}
+
+export async function listCouponsForSeller(sellerId: string) {
+  return prisma.coupon.findMany({
+    where: { sellerId },
     orderBy: { createdAt: "desc" },
     include: { _count: { select: { redemptions: true } } },
   });
