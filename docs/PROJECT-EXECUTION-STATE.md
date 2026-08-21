@@ -1365,7 +1365,7 @@ proved out this session — do not relax these just because the scope grew)
       corrected to a real ≥10-character description, the update — and
       the error path's own real correctness — were both confirmed.)
 
-### Current status / where to resume (2026-08-21, commit `PENDING`)
+### Current status / where to resume (2026-08-21, commit `a6189e1`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
