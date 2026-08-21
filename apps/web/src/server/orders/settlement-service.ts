@@ -18,6 +18,10 @@ function isUniqueViolation(error: unknown): boolean {
   return typeof error === "object" && error !== null && (error as { code?: string }).code === "P2002";
 }
 
+export class SettlementError extends Error {
+  override name = "SettlementError";
+}
+
 /**
  * Idempotent under the outbox's real at-least-once delivery semantics —
  * see schema.prisma's own comment on SellerLedgerEntry's
@@ -183,6 +187,93 @@ export async function listSellerLedgerEntries(sellerId: string, take = 100) {
     orderBy: { createdAt: "desc" },
     take,
     include: { order: { select: { orderNumber: true } } },
+  });
+}
+
+export interface SellerWithPayableBalance {
+  readonly sellerId: string;
+  readonly storeName: string;
+  readonly slug: string;
+  readonly payableSantim: number;
+}
+
+/** Every seller with a real, positive, still-unsettled balance — the
+ * admin payouts queue. A seller whose ledger nets to zero or negative
+ * (e.g. return refunds outweighing sales right now) has nothing to pay
+ * out and is correctly excluded, not shown as "owed 0". */
+export async function listSellersWithPayableBalance(): Promise<SellerWithPayableBalance[]> {
+  const grouped = await prisma.sellerLedgerEntry.groupBy({
+    by: ["sellerId"],
+    where: { settledAt: null },
+    _sum: { amountSantim: true },
+  });
+  const owed = grouped.filter((g) => (g._sum.amountSantim ?? 0) > 0);
+  if (owed.length === 0) return [];
+
+  const sellers = await prisma.seller.findMany({
+    where: { id: { in: owed.map((o) => o.sellerId) } },
+    select: { id: true, storeName: true, slug: true },
+  });
+  const sellerById = new Map(sellers.map((s) => [s.id, s]));
+
+  return owed
+    .map((o) => {
+      const seller = sellerById.get(o.sellerId);
+      return {
+        sellerId: o.sellerId,
+        storeName: seller?.storeName ?? "Unknown seller",
+        slug: seller?.slug ?? "",
+        payableSantim: o._sum.amountSantim ?? 0,
+      };
+    })
+    .sort((a, b) => b.payableSantim - a.payableSantim);
+}
+
+export interface RecordedPayout {
+  readonly settledSantim: number;
+  readonly entriesCount: number;
+}
+
+/**
+ * Records a payout the admin has ALREADY sent outside this system (bank
+ * transfer, mobile money — whatever the marketplace's real, current
+ * process is) — this function does NOT move any real money itself. See
+ * SellerLedgerEntry.settledAt's own comment: a real, automated payout
+ * mechanism (SantimPay's B2C payout endpoint) carries the same
+ * unconfirmed-gateway-semantics risk already flagged for refunds and is
+ * deliberately not built. Recording what an admin attests they already
+ * did in the real world is a different, honest thing from the system
+ * claiming to have paid someone itself — the Server Action and UI copy
+ * for this must stay explicit about that distinction.
+ *
+ * Settles the seller's ENTIRE current payable balance atomically, not a
+ * partial amount — matching how an early-stage marketplace's real payout
+ * process actually works (one transfer covering the current balance), and
+ * avoiding the real complexity a partial-settlement UI would need (which
+ * specific entries, tracked how) for a v1 that doesn't need it yet.
+ */
+export async function recordSellerPayout(sellerId: string): Promise<RecordedPayout> {
+  return prisma.$transaction(async (tx) => {
+    const unsettled = await tx.sellerLedgerEntry.findMany({
+      where: { sellerId, settledAt: null },
+      select: { id: true, amountSantim: true },
+    });
+    if (unsettled.length === 0) {
+      throw new SettlementError("Nothing owed to this seller right now.");
+    }
+
+    const totalSantim = unsettled.reduce((sum, e) => sum + e.amountSantim, 0);
+    if (totalSantim <= 0) {
+      throw new SettlementError("This seller has no positive payable balance to record a payout for.");
+    }
+
+    await tx.sellerLedgerEntry.updateMany({
+      where: { id: { in: unsettled.map((e) => e.id) } },
+      data: { settledAt: new Date() },
+    });
+
+    logger.info("settlement.payout_recorded", { sellerId, settledSantim: totalSantim, entriesCount: unsettled.length });
+    return { settledSantim: totalSantim, entriesCount: unsettled.length };
   });
 }
 

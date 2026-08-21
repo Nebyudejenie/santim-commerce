@@ -24,6 +24,7 @@
 import { revalidatePath } from "next/cache";
 import { settlePayment } from "../payments/payment-service.js";
 import { setProductFeaturedAsAdmin } from "../catalogue/listing-service.js";
+import { recordSellerPayout, SettlementError } from "../orders/settlement-service.js";
 import { logger } from "../observability/logger.js";
 import { requireRole } from "../auth/guard.js";
 
@@ -79,4 +80,31 @@ export async function toggleProductFeaturedAction(
   revalidatePath("/admin/products");
   revalidatePath("/");
   return { ok: true, message: featured ? "Marked featured." : "Removed from featured." };
+}
+
+/**
+ * Records a payout the admin has ALREADY sent outside this system — see
+ * settlement-service.ts's own comment on `recordSellerPayout`. This
+ * action does not move any money; it only records that a real, off-
+ * system payout already happened.
+ */
+export async function recordSellerPayoutAction(
+  _prev: AdminActionState,
+  formData: FormData,
+): Promise<AdminActionState> {
+  await requireRole("STAFF");
+
+  const sellerId = String(formData.get("sellerId") ?? "");
+  if (!sellerId) return { ok: false, message: "Missing seller." };
+
+  try {
+    const result = await recordSellerPayout(sellerId);
+    revalidatePath("/admin/payouts");
+    logger.info("admin.payout_recorded", { sellerId, settledSantim: result.settledSantim });
+    return { ok: true, message: `Recorded a payout of ${(result.settledSantim / 100).toFixed(2)} ETB.` };
+  } catch (error) {
+    if (error instanceof SettlementError) return { ok: false, message: error.message };
+    logger.error("admin.payout_record_failed", { sellerId, error: (error as Error).message });
+    return { ok: false, message: "Something went wrong. Please try again." };
+  }
 }

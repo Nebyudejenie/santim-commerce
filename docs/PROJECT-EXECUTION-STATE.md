@@ -804,8 +804,50 @@ proved out this session — do not relax these just because the scope grew)
       buyers on the same sold-out variant: one who'd already requested
       saw the confirmation message with no button; one who hadn't saw the
       real button; a guest saw the sign-in prompt.
+- [x] **Admin payout recording** — confirmed `SellerLedgerEntry.settledAt`
+      is read (`getSellerBalance`'s payable/settled split) but was NEVER
+      written anywhere in this codebase — a permanent, real gap: every
+      seller's "already paid out" figure has been silently stuck at zero
+      forever, for every seller, since the settlement feature shipped.
 
-### Current status / where to resume (2026-08-21, commit `8c61afc`)
+      A real, deliberate distinction drove this feature's design, not an
+      afterthought: `settledAt`'s own schema comment ties it to "a real
+      payout mechanism" that "actually pays this entry" — i.e., real money
+      movement via SantimPay's B2C endpoint, the same already-flagged,
+      correctly-out-of-scope risk as refunds. Building "mark as settled"
+      as if the SYSTEM had paid the seller would mean fabricating a
+      financial fact, the same category of problem already avoided this
+      session for shipping-label tracking numbers. What's actually built
+      instead: `recordSellerPayout` records that the ADMIN has ALREADY
+      sent the money through their own real, off-system process (bank
+      transfer, mobile money) — an attestation of a real action a trusted
+      internal user performed, not the system claiming to have executed a
+      payment. The Server Action, UI copy, and confirmation dialog are all
+      deliberately explicit about this distinction ("record a payout you
+      already made" / "this does not send any payment itself").
+
+      Settles a seller's ENTIRE current payable balance atomically, not a
+      partial amount — matches how an early-stage marketplace's real
+      payout process actually works, and avoids the real complexity a
+      partial-settlement UI would need for a v1 that doesn't need it yet.
+      A seller whose ledger nets to zero or negative (return refunds
+      outweighing sales right now) is correctly excluded from the queue,
+      not shown as "owed 0"; recording a payout for a seller with nothing
+      owed is rejected, not a silent no-op; a second payout call right
+      after the first is rejected too — a balance can never be recorded
+      as paid twice. New `/admin/payouts` page — every seller with a real
+      outstanding balance, real amount owed, one button. 5 new integration
+      tests (its own global, cross-seller query gets the same
+      find-my-own-unique-row treatment `getBusinessMetrics` already
+      established, not the array-length assertions that would carry the
+      same real cross-file interference risk under `node --test`'s
+      concurrent execution). Full integration suite (152 tests) run three
+      times — all green. Verified end-to-end over real HTTP: a real
+      seller's real owed amount (299.70 ETB, computed from a real sale
+      minus real 10% commission) rendered exactly right; a guest is
+      redirected to `/admin/login`.
+
+### Current status / where to resume (2026-08-21, commit `e2a2796`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
@@ -816,10 +858,12 @@ pass cleanly as of this commit.
 
 Deliberately still out of scope, not oversights — both genuinely blocked
 on real external state this environment doesn't have, not scoping
-choices: **real seller payouts** (sending actual money via SantimPay's B2C
-payout endpoint carries the same unconfirmed-gateway-semantics risk
-flagged for refunds — see `docs/01-santimpay-protocol-spec.md`'s own open
-questions) and **real carrier shipping** (`carrier-client.ts` is an
+choices: **automated seller payouts** (sending actual money via
+SantimPay's B2C payout endpoint carries the same unconfirmed-gateway-
+semantics risk flagged for refunds — see `docs/01-santimpay-protocol-
+spec.md`'s own open questions; what IS built is recording a payout the
+admin already sent through their own off-system process — see the payout
+entry above) and **real carrier shipping** (`carrier-client.ts` is an
 explicit curriculum mock — `mock-carrier.example`, an in-memory ledger —
 wiring its fake tracking numbers into real UI would mean presenting
 fabricated data to real users, which was correctly not done this session
@@ -830,8 +874,9 @@ gap audit against the master mandate's full feature list (the same method
 that found every feature built this session — grep the codebase for what
 a real marketplace needs, don't assume; several rounds of this already
 found wishlist, notifications, seller coupons, product Q&A, bulk CSV
-import/export, back-in-stock notifications, and more, each confirmed
-genuinely absent before being built). No further specific candidate is
+import/export, back-in-stock notifications, admin payout recording, and
+more, each confirmed genuinely absent before being built). No further
+specific candidate is
 currently queued — gift cards / store credit was considered and
 deliberately not pursued: unlike everything built this session, issuing
 one would need a real payment-collection step, the same real-gateway-

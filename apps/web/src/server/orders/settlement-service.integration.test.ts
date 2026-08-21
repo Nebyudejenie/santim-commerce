@@ -19,7 +19,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { PrismaClient } from "@prisma/client";
-import { createLedgerEntriesForOrder, getSellerBalance, getSellerBusinessMetrics, listSellerLedgerEntries } from "./settlement-service.ts";
+import {
+  createLedgerEntriesForOrder,
+  getSellerBalance,
+  getSellerBusinessMetrics,
+  listSellerLedgerEntries,
+  listSellersWithPayableBalance,
+  recordSellerPayout,
+  SettlementError,
+} from "./settlement-service.ts";
 
 const prisma = new PrismaClient();
 
@@ -346,6 +354,117 @@ test("getSellerBusinessMetrics for a seller with no real sales returns real zero
   assert.equal(metrics.ordersCount, 0);
   assert.equal(metrics.grossSalesSantim, 0);
   assert.equal(metrics.topProducts.length, 0);
+});
+
+// listSellersWithPayableBalance is a GLOBAL query across every seller —
+// same real cross-file interference risk under node --test's concurrent
+// execution that admin-queries.ts's getBusinessMetrics already needed a
+// workaround for. Finding this test's own unique sellerId within the
+// returned array (rather than asserting on the array's overall length or
+// order) sidesteps that entirely.
+test("listSellersWithPayableBalance surfaces a real seller with a real positive balance, with the real correct amount", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const sellerId = await makeSeller(`payable-${suffix}`, 1000);
+  const order = await prisma.order.create({
+    data: {
+      orderNumber: `SC-LEDGERPAYABLE${suffix}`.toUpperCase(),
+      email: "buyer@example.et",
+      phone: "+251900000000",
+      status: "PAID",
+      subtotalSantim: 20_000,
+      totalSantim: 20_000,
+      paidAt: new Date(),
+      lines: {
+        create: [
+          { sellerId, sku: `PAY-${suffix}`, productTitle: "Item", variantTitle: "Default", unitPriceSantim: 20_000, quantity: 1, lineTotalSantim: 20_000 },
+        ],
+      },
+    },
+  });
+  await createLedgerEntriesForOrder(order.id);
+
+  const sellers = await listSellersWithPayableBalance();
+  const mine = sellers.find((s) => s.sellerId === sellerId);
+  assert.ok(mine, "a seller with a real positive unsettled balance must appear in the payouts queue");
+  assert.equal(mine!.payableSantim, 18_000, "20000 - 10% commission (2000)");
+});
+
+test("listSellersWithPayableBalance excludes a seller whose balance is exactly zero", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const sellerId = await makeSeller(`payable-zero-${suffix}`, 1000);
+
+  const sellers = await listSellersWithPayableBalance();
+  assert.ok(!sellers.some((s) => s.sellerId === sellerId), "a seller with no ledger entries at all has nothing owed, must not appear");
+});
+
+test("recordSellerPayout settles the real full current balance, and getSellerBalance reflects it as settled afterward", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const sellerId = await makeSeller(`payout-${suffix}`, 1000);
+  const order = await prisma.order.create({
+    data: {
+      orderNumber: `SC-LEDGERPAYOUT${suffix}`.toUpperCase(),
+      email: "buyer@example.et",
+      phone: "+251900000000",
+      status: "PAID",
+      subtotalSantim: 15_000,
+      totalSantim: 15_000,
+      paidAt: new Date(),
+      lines: {
+        create: [
+          { sellerId, sku: `PO-${suffix}`, productTitle: "Item", variantTitle: "Default", unitPriceSantim: 15_000, quantity: 1, lineTotalSantim: 15_000 },
+        ],
+      },
+    },
+  });
+  await createLedgerEntriesForOrder(order.id);
+
+  const before = await getSellerBalance(sellerId);
+  assert.equal(before.payableSantim, 13_500);
+  assert.equal(before.settledSantim, 0);
+
+  const result = await recordSellerPayout(sellerId);
+  assert.equal(result.settledSantim, 13_500);
+  assert.equal(result.entriesCount, 2, "the real SALE and COMMISSION entries, both settled together");
+
+  const after = await getSellerBalance(sellerId);
+  assert.equal(after.payableSantim, 0, "the settled entries must no longer count as still owed");
+  assert.equal(after.settledSantim, 13_500);
+  assert.equal(after.lifetimeNetSantim, 13_500, "lifetime net must be unaffected by settling — it was always real money owed either way");
+});
+
+test("recordSellerPayout on a seller with nothing owed is rejected, not a silent no-op", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const sellerId = await makeSeller(`payout-empty-${suffix}`, 1000);
+
+  await assert.rejects(
+    () => recordSellerPayout(sellerId),
+    (err: unknown) => err instanceof SettlementError && /nothing owed/i.test(err.message),
+  );
+});
+
+test("calling recordSellerPayout twice in a row is rejected the second time — a payout must never be recorded twice for the same balance", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const sellerId = await makeSeller(`payout-twice-${suffix}`, 1000);
+  const order = await prisma.order.create({
+    data: {
+      orderNumber: `SC-LEDGERPAYOUTTWICE${suffix}`.toUpperCase(),
+      email: "buyer@example.et",
+      phone: "+251900000000",
+      status: "PAID",
+      subtotalSantim: 5_000,
+      totalSantim: 5_000,
+      paidAt: new Date(),
+      lines: {
+        create: [
+          { sellerId, sku: `POT-${suffix}`, productTitle: "Item", variantTitle: "Default", unitPriceSantim: 5_000, quantity: 1, lineTotalSantim: 5_000 },
+        ],
+      },
+    },
+  });
+  await createLedgerEntriesForOrder(order.id);
+
+  await recordSellerPayout(sellerId);
+  await assert.rejects(() => recordSellerPayout(sellerId), SettlementError);
 });
 
 test.after(async () => {
