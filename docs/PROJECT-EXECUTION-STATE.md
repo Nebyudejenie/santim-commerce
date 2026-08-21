@@ -1681,7 +1681,7 @@ proved out this session — do not relax these just because the scope grew)
       the resulting real notification renders correctly on the seller's
       own `/account/notifications` page.
 
-### Current status / where to resume (2026-08-21, commit `PENDING`)
+### Current status / where to resume (2026-08-21, commit `be39fa6`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
