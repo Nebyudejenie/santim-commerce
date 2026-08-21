@@ -188,6 +188,11 @@ export function CheckoutForm({
             Save this address for next time
           </label>
         )}
+
+        <div className="form-field">
+          <label htmlFor="customerNote">Delivery notes (optional)</label>
+          <textarea id="customerNote" name="customerNote" rows={2} maxLength={500} placeholder="e.g. gift wrap, call on arrival, leave with the guard" />
+        </div>
       </div>
 
       <div className="form-field">

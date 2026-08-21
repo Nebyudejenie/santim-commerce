@@ -119,6 +119,13 @@ export default async function TrackOrderPage({ searchParams }: Props) {
             </div>
           )}
 
+          {order.customerNote && (
+            <div style={{ marginTop: "var(--space-6)" }}>
+              <p style={{ fontWeight: 600, marginBottom: "var(--space-3)" }}>Your delivery notes</p>
+              <p style={{ fontSize: "var(--text-sm)", color: "var(--fg-muted)", whiteSpace: "pre-wrap" }}>{order.customerNote}</p>
+            </div>
+          )}
+
           <p className="form-hint" style={{ marginTop: "var(--space-4)" }}>
             Need to cancel this order or start a return? <Link href="/login">Sign in</Link> to manage it from
             your account, or <Link href="/register">create one</Link> using this same email address.

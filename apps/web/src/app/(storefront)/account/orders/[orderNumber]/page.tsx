@@ -109,6 +109,13 @@ export default async function AccountOrderDetailPage({ params }: Props) {
           ))}
         </div>
       )}
+
+      {order.customerNote && (
+        <div style={{ marginTop: "var(--space-6)" }}>
+          <p style={{ fontWeight: 600, marginBottom: "var(--space-3)" }}>Your delivery notes</p>
+          <p style={{ fontSize: "var(--text-sm)", color: "var(--fg-muted)", whiteSpace: "pre-wrap" }}>{order.customerNote}</p>
+        </div>
+      )}
     </div>
   );
 }

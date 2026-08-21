@@ -100,6 +100,13 @@ export default async function AdminOrderDetailPage({ params }: Props) {
             ))
           )}
         </div>
+
+        {order.customerNote && (
+          <div className="detail-card">
+            <h3>Delivery notes from the buyer</h3>
+            <p style={{ fontSize: "var(--text-sm)", color: "var(--fg-muted)", whiteSpace: "pre-wrap" }}>{order.customerNote}</p>
+          </div>
+        )}
       </div>
     </div>
   );

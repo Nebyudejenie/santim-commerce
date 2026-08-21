@@ -1167,7 +1167,50 @@ proved out this session — do not relax these just because the scope grew)
       name/description/logo with the old name gone, and the store's slug
       (its real URL) confirmed unchanged in the database throughout.
 
-### Current status / where to resume (2026-08-21, commit `acbea1e`)
+- [x] **Order delivery notes** — confirmed a real, half-built gap:
+      `Order.customerNote` already existed on the schema and
+      `checkout-service.ts`'s `PlaceOrderInput`/`placeOrder` already
+      accepted and persisted it — but NOTHING ever collected one: no
+      textarea on the checkout form, and `checkout-actions.ts`'s
+      `submitCheckout` never even read a `customerNote` value from the
+      submitted FormData to pass through. The field was write-capable but
+      permanently fed `undefined`. Nothing displayed it either — not to
+      the seller preparing to ship, not to admin, not back to the
+      customer themselves. The exact same "field exists, never wired"
+      shape as `Seller.logoUrl` before this session's seller-settings fix.
+
+      Added a "Delivery notes" textarea to the checkout form (500 char
+      cap, matching the same cap enforced server-side in
+      `submitCheckout`), wired it through to the existing
+      `placeOrder`/`Order.customerNote` write path, and surfaced it
+      everywhere an order is actually reviewed: the seller's order detail
+      page (`getSellerOrderDetail`'s select needed the field added), the
+      admin order detail page (already selected via `include`, just never
+      rendered), the customer's own account order page, and the guest
+      order-lookup page — all four read paths already had the field
+      available via `include`/an added `select`, so this was purely
+      display wiring plus the two collection-path fixes.
+
+      No new integration test: `customerNote`'s handling is a one-line,
+      non-branching passthrough (`customerNote: input.customerNote`,
+      identical in shape to the pre-existing, untouched `landmark` field
+      right next to it), and this file's own test file
+      (`checkout-service.integration.test.ts`) already documents, from an
+      earlier session, why a full happy-path `placeOrder()` call isn't
+      exercised here: it requires `env()` to validate a complete
+      SantimPay config this environment deliberately does not carry.
+      Verified instead by the same discipline applied elsewhere when a
+      full DB-level test isn't practical: thorough real HTTP E2E. Full
+      regression suite (72 unit, 182 integration — unchanged counts, a
+      real confirmation nothing regressed) and a production build pass.
+      Verified end-to-end over real HTTP: the checkout form (reached via
+      a real seeded cart, not a pre-filled mock) rendering the new
+      textarea; a real seeded order's note showing correctly on all four
+      read surfaces — guest lookup, the customer's own account page, the
+      seller's order detail page, and the admin order detail page — each
+      reached via its own real signed-in session where one was needed.
+
+### Current status / where to resume (2026-08-21, commit `PENDING`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
@@ -1202,7 +1245,7 @@ found wishlist, notifications, seller coupons, product Q&A, bulk CSV
 import/export, back-in-stock notifications, admin payout recording,
 customer order cancellation, guest order lookup, admin-assisted password
 reset, self-service password change, admin customer suspension, seller
-self-service storefront settings, and
+self-service storefront settings, order delivery notes, and
 more, each confirmed genuinely absent before being built). No further
 specific candidate is
 currently queued — gift cards / store credit was considered and

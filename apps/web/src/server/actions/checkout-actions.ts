@@ -48,6 +48,7 @@ export async function submitCheckout(
   const streetLine = String(formData.get("streetLine") ?? "").trim();
   const subCity = String(formData.get("subCity") ?? "").trim() || undefined;
   const landmark = String(formData.get("landmark") ?? "").trim() || undefined;
+  const customerNote = String(formData.get("customerNote") ?? "").trim().slice(0, 500) || undefined;
   const shippingZone = String(formData.get("shippingZone") ?? "");
   const acceptPriceChanges = formData.get("acceptPriceChanges") === "true";
   const couponCode = String(formData.get("appliedCouponCode") ?? "").trim() || undefined;
@@ -80,6 +81,7 @@ export async function submitCheckout(
       userId: sessionUser?.id ?? null,
       shippingZone,
       shippingAddress: { fullName, phone, city, streetLine, subCity, landmark, shippingZone },
+      customerNote,
       acceptPriceChanges,
       couponCode,
     });

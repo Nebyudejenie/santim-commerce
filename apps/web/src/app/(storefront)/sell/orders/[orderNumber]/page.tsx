@@ -92,6 +92,13 @@ export default async function SellerOrderDetailPage({ params }: Props) {
           <p className="empty-note">No shipping address on file — contact the buyer at {order.email}.</p>
         )}
       </div>
+
+      {order.customerNote && (
+        <div style={{ marginTop: "var(--space-5)" }}>
+          <p style={{ fontWeight: 600, marginBottom: "var(--space-3)" }}>Delivery notes from the buyer</p>
+          <p style={{ fontSize: "var(--text-sm)", color: "var(--fg-muted)", whiteSpace: "pre-wrap" }}>{order.customerNote}</p>
+        </div>
+      )}
     </div>
   );
 }

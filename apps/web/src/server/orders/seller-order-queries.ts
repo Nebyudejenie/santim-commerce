@@ -60,6 +60,7 @@ export async function getSellerOrderDetail(sellerId: string, orderNumber: string
       email: true,
       phone: true,
       shippingAddress: true,
+      customerNote: true,
       placedAt: true,
       paidAt: true,
     },
