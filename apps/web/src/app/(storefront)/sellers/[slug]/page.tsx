@@ -42,7 +42,12 @@ export default async function SellerStorefrontPage({ params }: Props) {
       )}
       <SellerTrustSignals reputation={reputation} />
 
-      {products.length === 0 ? (
+      {seller.vacationAt ? (
+        <div className="empty-state">
+          <h2>This store is temporarily closed</h2>
+          <p>Check back later — the seller has paused their listings for now.</p>
+        </div>
+      ) : products.length === 0 ? (
         <div className="empty-state">
           <h2>No listings yet</h2>
         </div>

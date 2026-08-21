@@ -133,6 +133,21 @@ export async function updateSellerProfile(sellerId: string, input: UpdateSellerP
   });
 }
 
+/**
+ * Self-service, reversible storefront pause — deliberately independent
+ * of `status` (see schema.prisma's own comment on `vacationAt`): a
+ * seller going on vacation is never a trust & safety action, so this
+ * never touches `SUSPENDED`/`reviewedBy`. Scoped by `sellerId` alone,
+ * exactly like `updateSellerProfile` — the caller already resolved this
+ * from the real, authenticated owner via `requireApprovedSeller`.
+ */
+export async function setSellerVacation(sellerId: string, onVacation: boolean): Promise<void> {
+  await prisma.seller.update({
+    where: { id: sellerId },
+    data: { vacationAt: onVacation ? new Date() : null },
+  });
+}
+
 export async function getSellerBySlug(slug: string) {
   return prisma.seller.findUnique({ where: { slug } });
 }

@@ -25,7 +25,10 @@ export const ACTIVE_VARIANT_WITH_STOCK = {
  * time respectively, for the window between "seen while browsing" and
  * "acted on".
  */
-export const VISIBLE_PRODUCT_WHERE = { status: "ACTIVE" as const, seller: { status: "APPROVED" as const } };
+export const VISIBLE_PRODUCT_WHERE = {
+  status: "ACTIVE" as const,
+  seller: { status: "APPROVED" as const, vacationAt: null },
+};
 
 export async function listFeaturedProducts(take = 4) {
   return prisma.product.findMany({
@@ -104,15 +107,23 @@ export async function listRelatedProducts(sellerId: string, excludeProductId: st
 export async function getSellerStorefront(slug: string) {
   const seller = await prisma.seller.findFirst({
     where: { slug, status: "APPROVED" },
-    select: { id: true, storeName: true, slug: true, description: true, logoUrl: true, createdAt: true },
+    select: { id: true, storeName: true, slug: true, description: true, logoUrl: true, createdAt: true, vacationAt: true },
   });
   if (!seller) return null;
 
-  const products = await prisma.product.findMany({
-    where: { sellerId: seller.id, status: "ACTIVE" },
-    orderBy: { createdAt: "desc" },
-    include: { variants: ACTIVE_VARIANT_WITH_STOCK, images: { orderBy: { position: "asc" } } },
-  });
+  // Deliberately NOT reusing VISIBLE_PRODUCT_WHERE here — that predicate
+  // filters by seller.status, but this function already established
+  // seller.status === APPROVED via the query above. Checking vacationAt
+  // explicitly (rather than skipping the products query when on
+  // vacation) keeps the shape consistent either way — an empty array,
+  // not an undefined field.
+  const products = seller.vacationAt
+    ? []
+    : await prisma.product.findMany({
+        where: { sellerId: seller.id, status: "ACTIVE" },
+        orderBy: { createdAt: "desc" },
+        include: { variants: ACTIVE_VARIANT_WITH_STOCK, images: { orderBy: { position: "asc" } } },
+      });
 
   return { seller, products };
 }

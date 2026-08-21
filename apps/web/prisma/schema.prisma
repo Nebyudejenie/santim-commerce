@@ -68,6 +68,16 @@ model Seller {
   /// Phase 8's settlement design.
   commissionBps Int @default(1000)
 
+  /// Seller-initiated, temporary storefront pause — confirmed absent
+  /// before this. Deliberately independent of `status`: vacation is a
+  /// self-service, reversible choice by an otherwise-APPROVED seller
+  /// (an away trip, restocking, etc.), never an admin trust & safety
+  /// action — that's what `status: SUSPENDED` is already for. Read
+  /// directly into `VISIBLE_PRODUCT_WHERE` in catalogue-service.ts, the
+  /// one shared predicate every buyer-facing browsing/search query
+  /// already goes through, so this took one line to apply everywhere.
+  vacationAt DateTime?
+
   products     Product[]
   orderLines   OrderLine[]
   ledgerEntries SellerLedgerEntry[]

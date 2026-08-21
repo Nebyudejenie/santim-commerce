@@ -16,6 +16,7 @@ import {
   requireApprovedSeller,
   SellerError,
   setSellerCommission,
+  setSellerVacation,
   suspendSeller,
   updateSellerProfile,
 } from "./seller-service.ts";
@@ -269,6 +270,20 @@ test("updateSellerProfile rejects a store name that's too short", async () => {
 
   const unchanged = await prisma.seller.findUniqueOrThrow({ where: { id: seller.id } });
   assert.equal(unchanged.storeName, "Valid Name", "a rejected update must not have touched the row");
+});
+
+test("setSellerVacation toggles vacationAt without touching status", async () => {
+  const userId = await makeUser(`vacation-${Math.random().toString(36).slice(2, 8)}`);
+  const seller = await applyToBecomeSeller({ userId, storeName: "Vacation Test Store" });
+
+  await setSellerVacation(seller.id, true);
+  let updated = await prisma.seller.findUniqueOrThrow({ where: { id: seller.id } });
+  assert.ok(updated.vacationAt);
+  assert.equal(updated.status, "PENDING", "vacation must never touch the real application status");
+
+  await setSellerVacation(seller.id, false);
+  updated = await prisma.seller.findUniqueOrThrow({ where: { id: seller.id } });
+  assert.equal(updated.vacationAt, null);
 });
 
 test.after(async () => {

@@ -17,6 +17,7 @@ import {
   requireApprovedSeller,
   SellerError,
   setSellerCommission,
+  setSellerVacation,
   suspendSeller,
   updateSellerProfile,
 } from "../sellers/seller-service.js";
@@ -179,6 +180,27 @@ export async function setSellerCommissionAction(
   } catch (error) {
     if (error instanceof SellerError) return { ok: false, message: error.message };
     logger.error("seller.commission_action_failed", { sellerId, error: (error as Error).message });
+    return { ok: false, message: "Something went wrong. Please try again." };
+  }
+}
+
+export async function setSellerVacationAction(
+  _prev: SellerActionState,
+  formData: FormData,
+): Promise<SellerActionState> {
+  const user = await requireUser();
+  const onVacation = formData.get("onVacation") === "true";
+
+  try {
+    const seller = await requireApprovedSeller(user.id);
+    await setSellerVacation(seller.id, onVacation);
+    revalidatePath("/sell");
+    revalidatePath("/sell/settings");
+    revalidatePath(`/sellers/${seller.slug}`);
+    return { ok: true, message: onVacation ? "Your store is now paused." : "Your store is live again." };
+  } catch (error) {
+    if (error instanceof SellerError) return { ok: false, message: error.message };
+    logger.error("seller.vacation_action_failed", { userId: user.id, error: (error as Error).message });
     return { ok: false, message: "Something went wrong. Please try again." };
   }
 }

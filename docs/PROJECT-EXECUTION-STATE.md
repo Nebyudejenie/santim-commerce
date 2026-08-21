@@ -1621,12 +1621,46 @@ proved out this session — do not relax these just because the scope grew)
       the one matching real user, and an unauthenticated request to the
       same route confirmed redirected to login.
 
-### Current status / where to resume (2026-08-21, commit `457d2e2`)
+- [x] **Seller vacation mode** — confirmed absent: a seller going away had
+      no way to temporarily pause their whole storefront short of
+      individually archiving every listing. New `Seller.vacationAt`,
+      deliberately independent of `status` — vacation is a self-service,
+      reversible choice, never a trust & safety action (that's what
+      `SUSPENDED` is for). Read directly into `VISIBLE_PRODUCT_WHERE`,
+      the one shared predicate catalogue-service.ts/search-service.ts
+      both already funnel every buyer-facing browsing/search query
+      through — so it took one line to apply everywhere those are used.
+
+      Caught a second, real, independent gap while wiring this in:
+      `getSellerStorefront` had its OWN separate visibility check
+      (`status: "ACTIVE"` inline) that never went through
+      `VISIBLE_PRODUCT_WHERE` at all — fixed to respect vacation
+      explicitly, and the storefront page now shows a real "temporarily
+      closed" message instead of a generic empty state. New
+      `setSellerVacation`/`setSellerVacationAction`, a pause/reopen
+      toggle on `/sell/settings` with a real confirm() dialog on each
+      direction.
+
+      3 new integration tests (toggles cleanly without touching
+      `status`; excluded from `listRelatedProducts`; `getSellerStorefront`
+      shows zero products while paused but still resolves the real
+      store, and shows the real listing again once reopened). Full
+      regression suite (72 unit, 217 integration, run twice given this
+      touches the shared cross-cutting visibility predicate) and a
+      production build pass. Verified end-to-end over real HTTP: a real
+      product visible before pausing; a real seller pausing their store
+      via Next's actual Server Action protocol; the product page then
+      404ing, the storefront showing the real "temporarily closed"
+      message, and the product confirmed absent from search — all from
+      one real toggle; and reopening restoring the real product page
+      immediately.
+
+### Current status / where to resume (2026-08-21, commit `PENDING`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
 watched to a real, uncontested completion, per this session's own working
-discipline above. Full regression suite (typecheck, lint, 72 unit, 214
+discipline above. Full regression suite (typecheck, lint, 72 unit, 217
 integration) and a production build all pass cleanly as of this commit.
 
 Deliberately still out of scope, not oversights — both genuinely blocked
@@ -1659,7 +1693,7 @@ reset, self-service password change, admin customer suspension, seller
 self-service storefront settings, order delivery notes, seller low-stock
 alerts, compare-at pricing, SEO title/description, self-service account
 deletion, related products, the ProductCard low-stock badge fix, an
-admin audit log, product Q&A moderation, self-service data export, seller order search/filter, customer order search, admin users CSV export, and
+admin audit log, product Q&A moderation, self-service data export, seller order search/filter, customer order search, admin users CSV export, seller vacation mode, and
 more, each confirmed genuinely absent before being built). No further
 specific candidate is currently queued — the systematic dead-field
 audit's one remaining finding, `User.emailVerifiedAt`, is confirmed dead

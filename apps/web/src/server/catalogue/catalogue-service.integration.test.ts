@@ -11,7 +11,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { PrismaClient } from "@prisma/client";
-import { listRelatedProducts } from "./catalogue-service.ts";
+import { getSellerStorefront, listRelatedProducts } from "./catalogue-service.ts";
 
 const prisma = new PrismaClient();
 
@@ -90,6 +90,33 @@ test("listRelatedProducts respects the take limit", async () => {
 
   const related = await listRelatedProducts(sellerId, productA.id, 3);
   assert.equal(related.length, 3);
+});
+
+test("listRelatedProducts excludes every product from a seller currently on vacation", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const sellerId = await makeSeller(suffix);
+  const productA = await makeProduct(sellerId, `${suffix}-a`);
+  await makeProduct(sellerId, `${suffix}-b`);
+  await prisma.seller.update({ where: { id: sellerId }, data: { vacationAt: new Date() } });
+
+  const related = await listRelatedProducts(sellerId, productA.id);
+  assert.equal(related.length, 0, "a seller on vacation must not recommend anything either");
+});
+
+test("getSellerStorefront shows no products, but still resolves the real seller, while on vacation", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const sellerId = await makeSeller(suffix);
+  await makeProduct(sellerId, `${suffix}-a`);
+  const seller = await prisma.seller.update({ where: { id: sellerId }, data: { vacationAt: new Date() } });
+
+  const storefront = await getSellerStorefront(seller.slug);
+  assert.ok(storefront, "the store page itself must still resolve — it's paused, not gone");
+  assert.equal(storefront.products.length, 0, "no products must show while genuinely on vacation");
+  assert.ok(storefront.seller.vacationAt, "the storefront's own data must reflect the real vacation state");
+
+  await prisma.seller.update({ where: { id: sellerId }, data: { vacationAt: null } });
+  const reopened = await getSellerStorefront(seller.slug);
+  assert.equal(reopened!.products.length, 1, "turning vacation back off must make the real listing visible again");
 });
 
 test.after(async () => {
