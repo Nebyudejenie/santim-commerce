@@ -1167,7 +1167,7 @@ proved out this session — do not relax these just because the scope grew)
       name/description/logo with the old name gone, and the store's slug
       (its real URL) confirmed unchanged in the database throughout.
 
-### Current status / where to resume (2026-08-21, commit `PENDING`)
+### Current status / where to resume (2026-08-21, commit `acbea1e`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
