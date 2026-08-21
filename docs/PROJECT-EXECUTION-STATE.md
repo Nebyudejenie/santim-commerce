@@ -1655,7 +1655,7 @@ proved out this session — do not relax these just because the scope grew)
       one real toggle; and reopening restoring the real product page
       immediately.
 
-### Current status / where to resume (2026-08-21, commit `PENDING`)
+### Current status / where to resume (2026-08-21, commit `90921f5`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
