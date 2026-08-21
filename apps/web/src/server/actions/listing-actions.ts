@@ -22,7 +22,12 @@ import {
   updateProduct,
   updateVariant,
 } from "../catalogue/listing-service.js";
-import { importProductsFromCsv, type ImportSummary } from "../catalogue/listing-bulk-service.js";
+import {
+  importProductsFromCsv,
+  updateProductsFromCsv,
+  type ImportSummary,
+  type UpdateSummary,
+} from "../catalogue/listing-bulk-service.js";
 import { logger } from "../observability/logger.js";
 
 export interface ListingActionState {
@@ -215,6 +220,44 @@ export async function importProductsCsvAction(
   } catch (error) {
     if (error instanceof ListingError) return { ok: false, message: error.message };
     logger.error("listing.import_csv_action_failed", { sellerId, error: (error as Error).message });
+    return { ok: false, message: "Something went wrong reading that file. Please try again." };
+  }
+}
+
+export interface UpdateCsvActionState {
+  readonly ok: boolean;
+  readonly message?: string;
+  readonly summary?: UpdateSummary;
+}
+
+export async function updateProductsCsvAction(
+  _prev: UpdateCsvActionState,
+  formData: FormData,
+): Promise<UpdateCsvActionState> {
+  const sellerId = await sellerIdOrState();
+  if (typeof sellerId !== "string") return sellerId;
+
+  const file = formData.get("csvFile");
+  if (!(file instanceof File) || file.size === 0) {
+    return { ok: false, message: "Choose a CSV file to upload." };
+  }
+  if (file.size > 2 * 1024 * 1024) {
+    return { ok: false, message: "That file is too large (max 2MB)." };
+  }
+
+  const csvText = await file.text();
+
+  try {
+    const summary = await updateProductsFromCsv(sellerId, csvText);
+    revalidatePath("/sell/products");
+    return {
+      ok: true,
+      message: `${summary.updatedCount} listing${summary.updatedCount === 1 ? "" : "s"} updated${summary.failedCount > 0 ? `, ${summary.failedCount} row${summary.failedCount === 1 ? "" : "s"} failed` : ""}.`,
+      summary,
+    };
+  } catch (error) {
+    if (error instanceof ListingError) return { ok: false, message: error.message };
+    logger.error("listing.update_csv_action_failed", { sellerId, error: (error as Error).message });
     return { ok: false, message: "Something went wrong reading that file. Please try again." };
   }
 }

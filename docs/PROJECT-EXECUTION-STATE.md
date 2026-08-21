@@ -1974,12 +1974,60 @@ proved out this session — do not relax these just because the scope grew)
       their real `/account/wishlist` page shows "Price dropped from ETB
       200.00". All seeded data and verify scripts cleaned up afterward.
 
-### Current status / where to resume (2026-08-22, commit `b0a598c`)
+- [x] **Bulk update-by-SKU CSV import** — closes the specific gap
+      `listing-bulk-service.ts`'s own module comment previously called out
+      by name: "Updating an EXISTING listing by SKU via CSV is real,
+      meaningfully bigger functionality... deliberately not built here."
+      Built now because reusing the existing update functions removed the
+      hard part that deferral was actually about: a blank CSV cell means
+      "leave this field unchanged," the exact same optional-field
+      semantics `UpdateVariantInput`/`UpdateProductInput` already use for
+      a manual edit — no new, parallel notion of "what does blank mean"
+      invented. New `updateProductsFromCsv(sellerId, csvText)` matches
+      each row to an existing variant by SKU, scoped to `product: {
+      sellerId }` — a SKU belonging to another seller (or a typo) simply
+      matches zero rows and fails that one row with "No listing found,"
+      the same ownership-via-WHERE discipline as everything else in this
+      codebase, never a distinguishable "yes that SKU exists, but it's
+      not yours." Every field update goes through the REAL
+      `updateVariant`/`updateProduct`/`setProductStatus` functions
+      directly — same validation (price format, description length,
+      legal DRAFT→ACTIVE→ARCHIVED transitions) a manual form submission
+      gets, never a parallel copy of that logic. `sku` is the only
+      required column; `status` is validated against the real enum
+      before being passed through. Same per-row try/catch discipline as
+      the existing create-import: one bad row never aborts the batch.
+
+      New `updateProductsCsvAction` + `UpdateProductsCsvForm`, placed
+      right below the existing import form on `/sell/products` — a
+      seller exports their catalogue (already-existing feature), edits
+      the real SKUs/prices/stock/status in a spreadsheet, and re-uploads
+      to apply real bulk changes.
+
+      5 new integration tests (blank cells genuinely leave fields
+      unchanged while filled cells genuinely change them; a cross-seller
+      SKU is refused without leaking that it exists; a legal status
+      transition applies for real while an invalid status string is
+      rejected; a bad row doesn't abort a batch of otherwise-good rows;
+      a missing `sku` column is rejected before touching the database).
+      Full regression (72 unit, 256 integration, run twice given this
+      touches the seller listing/pricing write path) and a production
+      build pass — no schema change, so no migration needed. Real HTTP
+      E2E: seeded a real DRAFT listing, uploaded a real CSV file through
+      the real seller form (price 100→85 ETB, stock 10→7, DRAFT→ACTIVE,
+      title/description left blank), confirmed via direct query that the
+      real title stayed untouched while price/stock/status genuinely
+      changed; seeded a second seller's own listing and confirmed a
+      real cross-seller SKU upload was refused with "No listing found"
+      and left that seller's real price untouched. All seeded data and
+      verify scripts cleaned up afterward.
+
+### Current status / where to resume (2026-08-22, commit `PENDING`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
 watched to a real, uncontested completion, per this session's own working
-discipline above. Full regression suite (typecheck, lint, 72 unit, 251
+discipline above. Full regression suite (typecheck, lint, 72 unit, 256
 integration) and a production build all pass cleanly as of this commit.
 
 Deliberately still out of scope, not oversights — both genuinely blocked
@@ -2015,7 +2063,7 @@ deletion, related products, the ProductCard low-stock badge fix, an
 admin audit log, product Q&A moderation, self-service data export, seller order search/filter, customer order search, admin users CSV export, seller vacation mode, seller "new sale" notification, buyer-seller order
 messaging, admin message moderation, return dispute escalation,
 application-level login brute-force protection, wishlist price-drop
-alerts, and more, each confirmed genuinely absent before being built). No further
+alerts, bulk update-by-SKU CSV import, and more, each confirmed genuinely absent before being built). No further
 specific candidate is currently queued — the systematic dead-field
 audit's one remaining finding, `User.emailVerifiedAt`, is confirmed dead
 but correctly out of scope (see the compare-at entry above for why).

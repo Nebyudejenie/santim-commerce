@@ -4,6 +4,7 @@ import { requireApprovedSellerForPage } from "@/server/auth/guard";
 import { listSellerProducts } from "@/server/catalogue/listing-service";
 import { StatusPill } from "@/components/status-pill";
 import { ImportProductsCsvForm } from "@/components/import-products-csv-form";
+import { UpdateProductsCsvForm } from "@/components/update-products-csv-form";
 
 export const metadata: Metadata = { title: "Your listings" };
 export const dynamic = "force-dynamic";
@@ -23,6 +24,7 @@ export default async function SellerProductsPage() {
       </div>
 
       <ImportProductsCsvForm />
+      <UpdateProductsCsvForm />
 
       {products.length === 0 ? (
         <div className="empty-state">

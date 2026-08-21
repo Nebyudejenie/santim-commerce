@@ -10,7 +10,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { PrismaClient } from "@prisma/client";
-import { exportSellerProductsCsv, importProductsFromCsv } from "./listing-bulk-service.ts";
+import { exportSellerProductsCsv, importProductsFromCsv, updateProductsFromCsv } from "./listing-bulk-service.ts";
 import { parseCsvWithHeader } from "./csv.ts";
 import { ListingError } from "./listing-service.ts";
 
@@ -139,6 +139,128 @@ test("export and import round-trip: exporting a real listing and re-importing it
 
   const all = await prisma.product.findMany({ where: { sellerId } });
   assert.equal(all.length, 2);
+});
+
+test("updateProductsFromCsv updates price/stock for a real existing SKU, leaving blank-cell fields unchanged", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const sellerId = await makeSeller(suffix);
+
+  await importProductsFromCsv(sellerId, [
+    "title,description,sku,priceBirr,onHand",
+    `Update Test Item ${suffix},A real description long enough to pass validation.,UPD-${suffix}-1,100.00,10`,
+  ].join("\n"));
+
+  // Only sku, priceBirr, onHand filled — title/description/brand left blank.
+  const summary = await updateProductsFromCsv(sellerId, [
+    "sku,title,description,brand,priceBirr,onHand,status",
+    `UPD-${suffix}-1,,,,75.00,3,`,
+  ].join("\n"));
+
+  assert.equal(summary.updatedCount, 1);
+  assert.equal(summary.failedCount, 0);
+
+  const product = await prisma.product.findFirstOrThrow({
+    where: { sellerId, variants: { some: { sku: `UPD-${suffix}-1` } } },
+    include: { variants: { include: { inventory: true } } },
+  });
+  assert.equal(product.title, `Update Test Item ${suffix}`, "a blank title cell must leave the real title unchanged");
+  assert.equal(product.status, "DRAFT", "a blank status cell must leave the real status unchanged");
+  assert.equal(product.variants[0]!.priceSantim, 7_500, "a real price cell must actually update the price");
+  assert.equal(product.variants[0]!.inventory!.onHand, 3, "a real onHand cell must actually update stock");
+});
+
+test("updateProductsFromCsv rejects a SKU belonging to another seller — indistinguishable from not found", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const sellerId = await makeSeller(suffix);
+  const strangerSellerId = await makeSeller(`${suffix}-stranger`);
+
+  await importProductsFromCsv(strangerSellerId, [
+    "title,description,sku,priceBirr,onHand",
+    `Stranger Update Item ${suffix},A real description long enough to pass validation.,UPDSTRANGER-${suffix},50.00,5`,
+  ].join("\n"));
+
+  const summary = await updateProductsFromCsv(sellerId, [
+    "sku,priceBirr",
+    `UPDSTRANGER-${suffix},1.00`,
+  ].join("\n"));
+
+  assert.equal(summary.updatedCount, 0);
+  assert.equal(summary.failedCount, 1);
+  assert.match(summary.results[0]!.message ?? "", /No listing found/);
+
+  const untouched = await prisma.variant.findFirstOrThrow({ where: { sku: `UPDSTRANGER-${suffix}` } });
+  assert.equal(untouched.priceSantim, 5_000, "a cross-seller SKU attempt must not touch the real row");
+});
+
+test("updateProductsFromCsv applies a real, legal status transition and rejects an invalid status value", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const sellerId = await makeSeller(suffix);
+
+  await importProductsFromCsv(sellerId, [
+    "title,description,sku,priceBirr,onHand",
+    `Status Test Item ${suffix},A real description long enough to pass validation.,STATUS-${suffix},20.00,4`,
+  ].join("\n"));
+
+  const publish = await updateProductsFromCsv(sellerId, [
+    "sku,status",
+    `STATUS-${suffix},ACTIVE`,
+  ].join("\n"));
+  assert.equal(publish.updatedCount, 1);
+  const published = await prisma.product.findFirstOrThrow({ where: { variants: { some: { sku: `STATUS-${suffix}` } } } });
+  assert.equal(published.status, "ACTIVE");
+
+  const badStatus = await updateProductsFromCsv(sellerId, [
+    "sku,status",
+    `STATUS-${suffix},NOT_A_REAL_STATUS`,
+  ].join("\n"));
+  assert.equal(badStatus.updatedCount, 0);
+  assert.equal(badStatus.failedCount, 1);
+  assert.match(badStatus.results[0]!.message ?? "", /Invalid status/);
+});
+
+test("updateProductsFromCsv: a bad row does not abort the batch — good rows still update, the bad one reports a real per-row error", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const sellerId = await makeSeller(suffix);
+
+  await importProductsFromCsv(sellerId, [
+    "title,description,sku,priceBirr,onHand",
+    `Batch A ${suffix},A real description long enough to pass validation.,BATCH-${suffix}-A,10.00,1`,
+    `Batch B ${suffix},A real description long enough to pass validation.,BATCH-${suffix}-B,10.00,1`,
+  ].join("\n"));
+
+  const summary = await updateProductsFromCsv(sellerId, [
+    "sku,onHand",
+    `BATCH-${suffix}-A,50`,
+    `NONEXISTENT-${suffix},50`,
+    `BATCH-${suffix}-B,60`,
+  ].join("\n"));
+
+  assert.equal(summary.updatedCount, 2, "the two real, valid SKUs must still update");
+  assert.equal(summary.failedCount, 1);
+  assert.equal(summary.results[1]!.ok, false);
+
+  const a = await prisma.variant.findFirstOrThrow({ where: { sku: `BATCH-${suffix}-A` }, include: { inventory: true } });
+  const b = await prisma.variant.findFirstOrThrow({ where: { sku: `BATCH-${suffix}-B` }, include: { inventory: true } });
+  assert.equal(a.inventory!.onHand, 50);
+  assert.equal(b.inventory!.onHand, 60);
+});
+
+test("updateProductsFromCsv rejects a file missing the required sku column, before touching the database", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const sellerId = await makeSeller(suffix);
+
+  await importProductsFromCsv(sellerId, [
+    "title,description,sku,priceBirr,onHand",
+    `No Sku Column Item ${suffix},A real description long enough to pass validation.,NOSKUCOL-${suffix},10.00,1`,
+  ].join("\n"));
+
+  await assert.rejects(
+    () => updateProductsFromCsv(sellerId, "title,priceBirr\nSomething,10.00"),
+    (err: unknown) => err instanceof ListingError && /Missing required column: sku/.test(err.message),
+  );
+
+  const unchanged = await prisma.variant.findFirstOrThrow({ where: { sku: `NOSKUCOL-${suffix}` } });
+  assert.equal(unchanged.priceSantim, 1_000);
 });
 
 test.after(async () => {
