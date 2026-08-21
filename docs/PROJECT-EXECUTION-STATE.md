@@ -1210,7 +1210,7 @@ proved out this session — do not relax these just because the scope grew)
       seller's order detail page, and the admin order detail page — each
       reached via its own real signed-in session where one was needed.
 
-### Current status / where to resume (2026-08-21, commit `PENDING`)
+### Current status / where to resume (2026-08-21, commit `987fa31`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
