@@ -1589,12 +1589,26 @@ proved out this session — do not relax these just because the scope grew)
       each isolate the right one, and confirmed a fulfilment-status
       filter isolates the right one too.
 
-### Current status / where to resume (2026-08-21, commit `fc3d601`)
+- [x] **Customer order search** — same gap, buyer side: `getOrdersForUser`
+      was unbounded but had no search at all. New `search` param matching
+      either the order number or a line's product title ("the blue
+      jacket" is often easier to remember than an order number), scoped
+      to the calling user only. New search form on `/account`. First
+      dedicated test coverage for this module — 1 new integration test
+      proving both match paths and that another user's order never
+      leaks in regardless of what's searched for. Full regression suite
+      (72 unit, 213 integration) and a production build pass. Verified
+      end-to-end over real HTTP: two real seeded orders, confirmed both
+      show unfiltered, confirmed search by order number and by product
+      title each isolate the right one, and a non-matching search
+      correctly shows "No matching orders."
+
+### Current status / where to resume (2026-08-21, commit `PENDING`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
 watched to a real, uncontested completion, per this session's own working
-discipline above. Full regression suite (typecheck, lint, 72 unit, 212
+discipline above. Full regression suite (typecheck, lint, 72 unit, 213
 integration) and a production build all pass cleanly as of this commit.
 
 Deliberately still out of scope, not oversights — both genuinely blocked
@@ -1627,7 +1641,7 @@ reset, self-service password change, admin customer suspension, seller
 self-service storefront settings, order delivery notes, seller low-stock
 alerts, compare-at pricing, SEO title/description, self-service account
 deletion, related products, the ProductCard low-stock badge fix, an
-admin audit log, product Q&A moderation, self-service data export, seller order search/filter, and
+admin audit log, product Q&A moderation, self-service data export, seller order search/filter, customer order search, and
 more, each confirmed genuinely absent before being built). No further
 specific candidate is currently queued — the systematic dead-field
 audit's one remaining finding, `User.emailVerifiedAt`, is confirmed dead

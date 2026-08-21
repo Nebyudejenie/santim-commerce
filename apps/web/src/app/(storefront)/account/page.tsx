@@ -9,9 +9,14 @@ import { StatusPill } from "@/components/status-pill";
 export const metadata: Metadata = { title: "Your account" };
 export const dynamic = "force-dynamic";
 
-export default async function AccountPage() {
+interface Props {
+  searchParams: Promise<{ q?: string }>;
+}
+
+export default async function AccountPage({ searchParams }: Props) {
+  const { q } = await searchParams;
   const user = await requireUser();
-  const orders = await getOrdersForUser(user.id);
+  const orders = await getOrdersForUser(user.id, q);
 
   return (
     <div className="container" style={{ paddingBlock: "var(--space-7)", maxWidth: "760px" }}>
@@ -32,11 +37,18 @@ export default async function AccountPage() {
         <Link href="/account/security" className="btn btn--secondary">Password</Link>
       </div>
 
+      <form method="get" style={{ marginBottom: "var(--space-5)", display: "flex", gap: "var(--space-3)" }}>
+        <input type="text" name="q" defaultValue={q ?? ""} placeholder="Order number or item name…" style={{ maxWidth: "280px" }} />
+        <button type="submit" className="btn btn--secondary btn-sm">Search</button>
+      </form>
+
       {orders.length === 0 ? (
         <div className="empty-state">
-          <h2>No orders yet</h2>
-          <p style={{ marginBottom: "var(--space-6)" }}>When you place an order, it&apos;ll show up here.</p>
-          <Link href="/shop" className="btn btn--primary">Start shopping</Link>
+          <h2>{q ? "No matching orders" : "No orders yet"}</h2>
+          <p style={{ marginBottom: "var(--space-6)" }}>
+            {q ? "Try a different search." : "When you place an order, it'll show up here."}
+          </p>
+          {!q && <Link href="/shop" className="btn btn--primary">Start shopping</Link>}
         </div>
       ) : (
         <div>
