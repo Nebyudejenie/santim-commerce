@@ -61,18 +61,37 @@ export async function answerQuestion(sellerId: string, questionId: string, answe
 
 export async function listQuestionsForProduct(productId: string) {
   return prisma.productQuestion.findMany({
-    where: { productId },
+    where: { productId, hiddenAt: null },
     orderBy: { createdAt: "desc" },
     include: { askedBy: { select: { name: true, email: true } } },
   });
 }
 
 /** The seller console's "needs a reply" queue — every question across all
- * of this seller's products that hasn't been answered yet. */
+ * of this seller's products that hasn't been answered yet. Excludes
+ * hidden questions too — nothing to reply to once it's been removed. */
 export async function listUnansweredQuestionsForSeller(sellerId: string) {
   return prisma.productQuestion.findMany({
-    where: { product: { sellerId }, answer: null },
+    where: { product: { sellerId }, answer: null, hiddenAt: null },
     orderBy: { createdAt: "asc" },
     include: { product: { select: { title: true, slug: true } }, askedBy: { select: { name: true, email: true } } },
   });
+}
+
+/**
+ * Trust & safety — confirmed absent before this: an inappropriate
+ * question had no way to be removed by anyone. Seller-scoped, the same
+ * ownership discipline `answerQuestion` already uses (a cross-seller
+ * attempt is indistinguishable from "not found") — a seller may remove a
+ * question on their OWN product, matching how they already own the
+ * answering side of this same relationship.
+ */
+export async function hideQuestion(sellerId: string, questionId: string): Promise<void> {
+  const result = await prisma.productQuestion.updateMany({
+    where: { id: questionId, product: { sellerId } },
+    data: { hiddenAt: new Date() },
+  });
+  if (result.count !== 1) {
+    throw new ProductQAError("Question not found.");
+  }
 }

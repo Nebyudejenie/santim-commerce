@@ -10,7 +10,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { PrismaClient } from "@prisma/client";
-import { answerQuestion, askQuestion, listQuestionsForProduct, listUnansweredQuestionsForSeller, ProductQAError } from "./product-qa-service.ts";
+import { answerQuestion, askQuestion, hideQuestion, listQuestionsForProduct, listUnansweredQuestionsForSeller, ProductQAError } from "./product-qa-service.ts";
 
 const prisma = new PrismaClient();
 
@@ -116,6 +116,39 @@ test("listUnansweredQuestionsForSeller returns only that seller's own unanswered
   const otherUnanswered = await listUnansweredQuestionsForSeller(otherSeller);
   assert.equal(otherUnanswered.length, 1);
   assert.equal(otherUnanswered[0]!.question, "A question for a completely different seller.");
+});
+
+test("hideQuestion removes it from the public list and the seller's unanswered queue", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const { sellerId, productId } = await makeSellerWithProduct(suffix);
+  const buyerId = await makeBuyer(suffix);
+  await askQuestion(buyerId, productId, "An inappropriate question to be removed.");
+  const [question] = await listQuestionsForProduct(productId);
+
+  await hideQuestion(sellerId, question!.id);
+
+  assert.equal((await listQuestionsForProduct(productId)).length, 0, "a hidden question must not show on the public product page");
+  assert.equal((await listUnansweredQuestionsForSeller(sellerId)).length, 0, "a hidden question must not show in the seller's own reply queue either");
+
+  const row = await prisma.productQuestion.findUniqueOrThrow({ where: { id: question!.id } });
+  assert.ok(row.hiddenAt);
+});
+
+test("hideQuestion is seller-scoped — a cross-seller attempt is indistinguishable from not found", async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const { productId } = await makeSellerWithProduct(suffix);
+  const { sellerId: strangerSeller } = await makeSellerWithProduct(`${suffix}-stranger`);
+  const buyerId = await makeBuyer(suffix);
+  await askQuestion(buyerId, productId, "A real question that a stranger seller must not be able to hide.");
+  const [question] = await listQuestionsForProduct(productId);
+
+  await assert.rejects(
+    () => hideQuestion(strangerSeller, question!.id),
+    (err: unknown) => err instanceof ProductQAError && /not found/.test(err.message),
+  );
+
+  const untouched = await prisma.productQuestion.findUniqueOrThrow({ where: { id: question!.id } });
+  assert.equal(untouched.hiddenAt, null, "a cross-seller attempt must not have changed anything");
 });
 
 test.after(async () => {

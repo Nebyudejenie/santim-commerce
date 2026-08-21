@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { requireApprovedSellerForPage } from "@/server/auth/guard";
 import { listUnansweredQuestionsForSeller } from "@/server/reviews/product-qa-service";
 import { AnswerQuestionForm } from "@/components/answer-question-form";
+import { HideQuestionButton } from "@/components/hide-question-button";
 
 export const metadata: Metadata = { title: "Your questions" };
 export const dynamic = "force-dynamic";
@@ -33,6 +34,9 @@ export default async function SellerQuestionsPage() {
               </p>
               <p style={{ fontWeight: 600 }}>{q.question}</p>
               <AnswerQuestionForm questionId={q.id} productSlug={q.product.slug} />
+              <div style={{ marginTop: "var(--space-2)" }}>
+                <HideQuestionButton questionId={q.id} productSlug={q.product.slug} />
+              </div>
             </div>
           ))}
         </div>

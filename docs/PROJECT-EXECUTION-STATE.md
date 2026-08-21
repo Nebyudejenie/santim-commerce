@@ -1530,12 +1530,33 @@ proved out this session — do not relax these just because the scope grew)
       HTTP; the service layer's own 3 tests plus this one full round
       trip cover the pattern's correctness.)
 
-### Current status / where to resume (2026-08-21, commit `7ea3fb6`)
+- [x] **Product Q&A moderation** — confirmed absent (review moderation
+      already existed via `hideReview`/`unhideReview`, but Q&A had no
+      equivalent): an inappropriate question had no way to be removed by
+      anyone. New `ProductQuestion.hiddenAt`, `hideQuestion(sellerId, …)`
+      mirroring `answerQuestion`'s own ownership scoping exactly (ability
+      to remove a question on their OWN product, indistinguishable
+      "not found" for a cross-seller attempt). Hidden questions excluded
+      from both the public PDP list and the seller's own reply queue.
+      New "Remove question" button on `/sell/questions`. Deliberately v1
+      scope: wired onto the unanswered-questions queue only, not a
+      separately already-answered view — an already-answered question
+      needing retroactive removal isn't covered by this UI yet.
+
+      2 new integration tests (removes from both the public list and the
+      seller's queue; seller-scoped, a cross-seller attempt indistinguish-
+      able from not found). Full regression suite (72 unit, 209
+      integration) and a production build pass. Verified end-to-end over
+      real HTTP: a real question visible on the PDP, a real seller
+      removing it via Next's actual Server Action protocol, and the
+      question confirmed gone from the public page immediately after.
+
+### Current status / where to resume (2026-08-21, commit `PENDING`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
 watched to a real, uncontested completion, per this session's own working
-discipline above. Full regression suite (typecheck, lint, 72 unit, 207
+discipline above. Full regression suite (typecheck, lint, 72 unit, 209
 integration) and a production build all pass cleanly as of this commit.
 
 Deliberately still out of scope, not oversights — both genuinely blocked
@@ -1568,7 +1589,7 @@ reset, self-service password change, admin customer suspension, seller
 self-service storefront settings, order delivery notes, seller low-stock
 alerts, compare-at pricing, SEO title/description, self-service account
 deletion, related products, the ProductCard low-stock badge fix, an
-admin audit log, and
+admin audit log, product Q&A moderation, and
 more, each confirmed genuinely absent before being built). No further
 specific candidate is currently queued — the systematic dead-field
 audit's one remaining finding, `User.emailVerifiedAt`, is confirmed dead

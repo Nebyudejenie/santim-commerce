@@ -451,6 +451,10 @@ model ProductQuestion {
   answeredBySeller   Seller?   @relation(fields: [answeredBySellerId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
+  /// Trust & safety — confirmed absent before this: an inappropriate
+  /// question had no way to be removed by anyone, seller or admin. Same
+  /// nullable-timestamp convention as everywhere else in this schema.
+  hiddenAt  DateTime?
 
   @@index([productId, createdAt])
   @@map("product_questions")
