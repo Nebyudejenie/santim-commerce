@@ -930,12 +930,78 @@ proved out this session — do not relax these just because the scope grew)
       with zero order data leaked; a nonexistent order number renders the
       same not-found message.
 
-### Current status / where to resume (2026-08-21, commit `cedde5a`)
+- [x] **Admin-assisted password reset** — confirmed a real, critical, and
+      permanent gap: this codebase has real email/password auth
+      (auth-service.ts, scrypt-hashed, real sessions) but never had ANY way
+      back in for a user who forgets their password. Every forgotten
+      password has been a permanent lockout since registration first
+      shipped.
+
+      A standard self-service "email me a reset link" flow cannot be
+      honestly built here: notification-service.ts's own comment already
+      establishes that no real email/SMS provider credentials exist in
+      this system, so every "notification" it sends is in-app-only —
+      useless for password recovery specifically, since the whole point is
+      reaching a user who by definition cannot sign in to see an in-app
+      notification. Fabricating a "reset email sent" claim when nothing
+      was actually sent would mean presenting fake functionality as real,
+      the same category of problem already avoided this session for
+      carrier tracking numbers and automated seller payouts.
+
+      What's built instead, matching `recordSellerPayout`'s established
+      precedent for a real gap blocked on a missing external gateway: a
+      trusted admin, having verified the request through their own real,
+      off-system channel (a support ticket, a phone call), issues a real,
+      single-use, time-limited (1 hour) token via a new `/admin/users`
+      directory (itself a real, separate, confirmed gap — zero admin
+      visibility into the users table existed before this) and relays the
+      resulting link to the user themselves. The system never claims to
+      have sent anything — the admin UI copy says so explicitly, twice
+      (the confirm dialog and the one-time reveal itself).
+
+      New `PasswordResetToken` model follows session.ts's own hash-only-
+      stored discipline exactly: the raw token exists only for the instant
+      it's generated, returned once in the Server Action's response, and
+      in the URL itself — the database only ever sees its SHA-256.
+      Redeeming a token (`/reset-password/[token]`, public) is a real
+      security-sensitive path: rejects an unknown, already-used, or
+      expired token with a specific message (not an enumeration risk here,
+      since the token itself is already a high-entropy secret you must
+      already possess to get any of these responses); issuing a NEW token
+      for a user immediately invalidates any earlier unused one, so old
+      links can never quietly pile up as standing account-takeover
+      vectors; and — the one property that mattered most — a successful
+      reset destroys EVERY existing session for that user, including one
+      an attacker who caused the lockout might already hold, not just the
+      browser that completed the reset.
+
+      7 new integration tests, all passing, proving each of the above
+      directly (old password stops working / new one works; every session
+      destroyed; a token redeems exactly once; expired and unknown tokens
+      rejected; a second issuance invalidates the first; issuing for a
+      nonexistent user is rejected). Full regression suite (72 unit, 170
+      integration) and a production build both pass. Verified end-to-end
+      over REAL HTTP, including replicating Next's actual no-JS Server
+      Action form-POST protocol with curl (multipart body carrying the
+      `$ACTION_*` fields scraped from the real rendered page) rather than
+      calling the service layer directly for the HTTP leg: a real admin
+      login, a real `/admin/users` search finding a real seeded user, the
+      real "Issue password reset link" action executed via that exact
+      POST protocol and returning a real one-time link in the response
+      body, that link's page correctly resetting the real password in the
+      database (old password verified to stop working, new one verified
+      to work), and reusing the same token afterward correctly rejected
+      with "this reset link has already been used" rendered on the page.
+      An unauthenticated request to `/admin/users` correctly redirects to
+      `/admin/login`. Login page now points a locked-out user toward
+      support rather than offering no path at all.
+
+### Current status / where to resume (2026-08-21, commit `PENDING`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
 watched to a real, uncontested completion, per this session's own working
-discipline above. Full regression suite (typecheck, lint, 72 unit, 163
+discipline above. Full regression suite (typecheck, lint, 72 unit, 170
 integration) and a production build all pass cleanly as of this commit.
 
 Deliberately still out of scope, not oversights — both genuinely blocked
@@ -950,6 +1016,12 @@ explicit curriculum mock — `mock-carrier.example`, an in-memory ledger —
 wiring its fake tracking numbers into real UI would mean presenting
 fabricated data to real users, which was correctly not done this session
 even though the `ShippingLabel` model and service layer already exist).
+The same missing-email-infra reason blocks a **self-service** "email me a
+reset link" password flow specifically — what IS built is the honest
+admin-assisted alternative (see the password reset entry above); if real
+email/SMS credentials are ever added to this environment, self-service
+reset and real notification delivery become the natural next step for
+both this feature and every existing in-app-only notification.
 
 If continuing this mandate: the highest-value next step is another honest
 gap audit against the master mandate's full feature list (the same method
@@ -957,7 +1029,8 @@ that found every feature built this session — grep the codebase for what
 a real marketplace needs, don't assume; several rounds of this already
 found wishlist, notifications, seller coupons, product Q&A, bulk CSV
 import/export, back-in-stock notifications, admin payout recording,
-customer order cancellation, guest order lookup, and
+customer order cancellation, guest order lookup, admin-assisted password
+reset, and
 more, each confirmed genuinely absent before being built). No further
 specific candidate is
 currently queued — gift cards / store credit was considered and

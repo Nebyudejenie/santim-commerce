@@ -555,6 +555,7 @@ model User {
   carts     Cart[]
   addresses Address[]
   sessions  Session[]
+  passwordResetTokens PasswordResetToken[]
   /// Present only if this user has applied to sell — see Seller.ownerId's
   /// own comment on why this is 1:1, not 1:N, in v1.
   seller    Seller?
@@ -608,6 +609,32 @@ model Session {
   @@index([userId])
   @@index([expiresAt])
   @@map("sessions")
+}
+
+/// Admin-issued account-recovery token. Same hash-only-stored discipline as
+/// Session.tokenHash above — the raw token exists only for the instant it's
+/// generated (returned once to the admin who issued it) and in the URL the
+/// admin relays to the user through their own real, off-system channel
+/// (support ticket, phone). This system has no real email/SMS provider
+/// credentials (see notification-service.ts's own comment) so a
+/// self-service "email me a reset link" flow cannot be honestly built here
+/// — this is the honest alternative: a real, single-use, time-limited
+/// token, issued by a trusted admin, never a fabricated "email sent"
+/// claim.
+model PasswordResetToken {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  tokenHash String @unique
+
+  issuedByAdmin String
+  createdAt     DateTime  @default(now())
+  expiresAt     DateTime
+  usedAt        DateTime?
+
+  @@index([userId])
+  @@map("password_reset_tokens")
 }
 
 model Address {

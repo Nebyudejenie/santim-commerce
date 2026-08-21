@@ -6,6 +6,7 @@ import { cookies } from "next/headers";
 import { AuthError, hasRole, login, logout, register } from "../auth/auth-service.js";
 import { destroySession } from "../auth/session.js";
 import { PasswordError } from "../auth/password.js";
+import { resetPasswordWithToken, PasswordResetError } from "../auth/password-reset-service.js";
 import { mergeGuestCartIntoUser } from "../cart/cart-service.js";
 import { logger } from "../observability/logger.js";
 
@@ -125,4 +126,32 @@ export async function adminLoginAction(
   }
 
   redirect("/admin");
+}
+
+/**
+ * Public completion of the admin-assisted recovery flow — see
+ * password-reset-service.ts's module comment for why the request side is
+ * admin-issued rather than self-service. This action just spends a real,
+ * already-issued token; the redirect to `/login` on success (not an
+ * automatic sign-in) matches every existing session-establishing action
+ * here going through the normal login path once, deliberately.
+ */
+export async function resetPasswordAction(
+  _prev: AuthFormState,
+  formData: FormData,
+): Promise<AuthFormState> {
+  const token = String(formData.get("token") ?? "");
+  const password = String(formData.get("password") ?? "");
+
+  try {
+    await resetPasswordWithToken(token, password);
+  } catch (error) {
+    if (error instanceof PasswordResetError || error instanceof PasswordError) {
+      return { ok: false, error: error.message };
+    }
+    logger.error("auth.reset_password_action_failed", { error: (error as Error).message });
+    return { ok: false, error: "Something went wrong. Please try again." };
+  }
+
+  redirect("/login");
 }

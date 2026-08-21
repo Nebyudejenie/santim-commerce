@@ -245,4 +245,43 @@ export async function listAllProductsForAdmin(search?: string, take = 100) {
   });
 }
 
+/**
+ * Admin user directory — confirmed absent before this: zero admin
+ * visibility into the users table at all, even though the auth system
+ * (email/password, real sessions) has existed since the very first version
+ * of this codebase. The immediate driver is password-reset-service.ts's
+ * admin-assisted recovery flow, which needs a real way for an admin to
+ * find a locked-out user by email before issuing them a reset link.
+ */
+export async function listUsersForAdmin(search?: string, take = 50) {
+  return prisma.user.findMany({
+    where: search
+      ? {
+          OR: [
+            { email: { contains: search, mode: "insensitive" } },
+            { name: { contains: search, mode: "insensitive" } },
+          ],
+        }
+      : undefined,
+    orderBy: { createdAt: "desc" },
+    take,
+    select: { id: true, email: true, name: true, role: true, createdAt: true },
+  });
+}
+
+export async function getUserForAdmin(userId: string) {
+  return prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      role: true,
+      createdAt: true,
+      seller: { select: { storeName: true, status: true } },
+      _count: { select: { orders: true, sessions: true } },
+    },
+  });
+}
+
 export type { OrderStatus, PaymentStatus };

@@ -21,6 +21,9 @@ export default async function LoginPage({ searchParams }: Props) {
         <p className="auth-card__footer">
           New here? <Link href="/register">Create an account</Link>
         </p>
+        <p className="form-hint" style={{ marginTop: "var(--space-3)" }}>
+          Forgotten your password? Contact support with the email on your account to get back in.
+        </p>
       </div>
     </div>
   );

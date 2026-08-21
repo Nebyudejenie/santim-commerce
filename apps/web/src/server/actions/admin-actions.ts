@@ -25,12 +25,23 @@ import { revalidatePath } from "next/cache";
 import { settlePayment } from "../payments/payment-service.js";
 import { setProductFeaturedAsAdmin } from "../catalogue/listing-service.js";
 import { recordSellerPayout, SettlementError } from "../orders/settlement-service.js";
+import { issuePasswordResetToken, PasswordResetError } from "../auth/password-reset-service.js";
 import { logger } from "../observability/logger.js";
 import { requireRole } from "../auth/guard.js";
 
 export interface AdminActionState {
   readonly ok: boolean;
   readonly message?: string;
+}
+
+// Same fallback/normalization as sitemap.ts and robots.ts — the one
+// existing convention in this codebase for building an absolute URL.
+const APP_URL = (process.env.APP_URL ?? "http://localhost:3000").replace(/\/+$/, "");
+
+export interface IssueResetTokenState {
+  readonly ok: boolean;
+  readonly message?: string;
+  readonly resetUrl?: string;
 }
 
 export async function resettlePaymentAction(
@@ -105,6 +116,34 @@ export async function recordSellerPayoutAction(
   } catch (error) {
     if (error instanceof SettlementError) return { ok: false, message: error.message };
     logger.error("admin.payout_record_failed", { sellerId, error: (error as Error).message });
+    return { ok: false, message: "Something went wrong. Please try again." };
+  }
+}
+
+/**
+ * Issues a real, single-use password reset link and returns it to the
+ * admin ONCE, for them to relay to the user through their own real,
+ * off-system channel — see password-reset-service.ts's module comment for
+ * why this is the honest alternative to a self-service "email me a link"
+ * flow this codebase cannot honestly build. The raw token is never stored
+ * anywhere and never displayed again after this response.
+ */
+export async function issuePasswordResetTokenAction(
+  _prev: IssueResetTokenState,
+  formData: FormData,
+): Promise<IssueResetTokenState> {
+  const admin = await requireRole("STAFF");
+
+  const userId = String(formData.get("userId") ?? "");
+  if (!userId) return { ok: false, message: "Missing user." };
+
+  try {
+    const { rawToken } = await issuePasswordResetToken(userId, admin.email);
+    logger.info("admin.password_reset_issued", { userId, issuedByAdmin: admin.email });
+    return { ok: true, resetUrl: `${APP_URL}/reset-password/${rawToken}` };
+  } catch (error) {
+    if (error instanceof PasswordResetError) return { ok: false, message: error.message };
+    logger.error("admin.password_reset_issue_failed", { userId, error: (error as Error).message });
     return { ok: false, message: "Something went wrong. Please try again." };
   }
 }
