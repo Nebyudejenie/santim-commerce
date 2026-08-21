@@ -930,7 +930,7 @@ proved out this session — do not relax these just because the scope grew)
       with zero order data leaked; a nonexistent order number renders the
       same not-found message.
 
-### Current status / where to resume (2026-08-21, commit `PENDING`)
+### Current status / where to resume (2026-08-21, commit `cedde5a`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
