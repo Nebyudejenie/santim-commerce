@@ -72,6 +72,7 @@ model Seller {
   orderLines   OrderLine[]
   ledgerEntries SellerLedgerEntry[]
   coupons      Coupon[]
+  answeredQuestions ProductQuestion[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -184,6 +185,7 @@ model Product {
   collections CollectionProduct[]
   reviews     ProductReview[]
   wishlistedBy WishlistItem[]
+  questions   ProductQuestion[]
 
   // SEO
   metaTitle       String?
@@ -402,6 +404,41 @@ model ReviewReport {
   @@map("review_reports")
 }
 
+/// Pre-purchase Q&A, visible on the product page — the eBay/Amazon "Ask a
+/// question" pattern. Deliberately NOT gated on proof-of-purchase the way
+/// ProductReview is: the whole point is letting someone who HASN'T bought
+/// yet get their question answered before they do. Answering is
+/// ownership-scoped to the product's own seller, same discipline as every
+/// other seller-scoped mutation in this codebase (see
+/// product-qa-service.ts's `answerQuestion`).
+///
+/// A question with no answer yet is still real, visible content, not a
+/// draft — other buyers benefit from seeing what's already been asked,
+/// answered or not, matching how a real storefront's Q&A section works.
+model ProductQuestion {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  askedByUserId String
+  askedBy       User   @relation("QuestionsAsked", fields: [askedByUserId], references: [id], onDelete: Cascade)
+  question      String @db.Text
+
+  answer             String?   @db.Text
+  answeredAt         DateTime?
+  /// The STORE that answered, not a particular staff account — this app
+  /// has no multi-user seller accounts (see Seller.ownerId's own comment:
+  /// one store per user in v1), so referencing Seller directly here is the
+  /// correct fit, the same way SellerLedgerEntry.sellerId does, not User.
+  answeredBySellerId String?
+  answeredBySeller   Seller?   @relation(fields: [answeredBySellerId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([productId, createdAt])
+  @@map("product_questions")
+}
+
 /// A customer's saved-for-later products. No separate "Wishlist" container
 /// model — each user has exactly one implicit wishlist (their own set of
 /// these rows), the same reasoning CartLine doesn't need a standalone
@@ -471,6 +508,7 @@ model User {
   couponRedemptions CouponRedemption[]
   wishlistItems WishlistItem[]
   notifications Notification[]
+  questionsAsked ProductQuestion[] @relation("QuestionsAsked")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -993,6 +1031,7 @@ enum NotificationType {
   ORDER_LINE_FULFILLED
   RETURN_APPROVED
   RETURN_REJECTED
+  QUESTION_ANSWERED
 }
 
 /// At most one shipping label per order — `orderId` is `@unique`, not just

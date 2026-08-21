@@ -16,6 +16,8 @@ import {
 } from "@/server/reviews/review-service";
 import { isWishlisted } from "@/server/wishlist/wishlist-service";
 import { WishlistButton } from "@/components/wishlist-button";
+import { listQuestionsForProduct } from "@/server/reviews/product-qa-service";
+import { AskQuestionForm } from "@/components/ask-question-form";
 
 interface Props {
   params: Promise<{ slug: string }>;
@@ -59,12 +61,13 @@ export default async function ProductPage({ params }: Props) {
   // Optional auth — the PDP itself is public, review-writing eligibility is
   // just an extra check for whoever (if anyone) is currently signed in.
   const user = await getSessionUser();
-  const [rating, reviews, alreadyReviewed, eligibleLine, alreadyWishlisted] = await Promise.all([
+  const [rating, reviews, alreadyReviewed, eligibleLine, alreadyWishlisted, questions] = await Promise.all([
     getProductRating(product.id),
     listProductReviews(product.id),
     user ? hasReviewed(user.id, product.id) : Promise.resolve(false),
     user ? findEligibleOrderLine(user.id, product.id) : Promise.resolve(null),
     user ? isWishlisted(user.id, product.id) : Promise.resolve(false),
+    listQuestionsForProduct(product.id),
   ]);
   const canReview = user !== null && !alreadyReviewed && eligibleLine !== null;
 
@@ -188,6 +191,35 @@ export default async function ProductPage({ params }: Props) {
               <h3 style={{ fontSize: "var(--text-md)", marginTop: "var(--space-6)" }}>Write a review</h3>
               <ReviewForm productId={product.id} productSlug={product.slug} />
             </>
+          )}
+        </div>
+
+        <div id="questions" style={{ marginTop: "var(--space-8)" }}>
+          <h2 style={{ fontSize: "var(--text-lg)", marginBottom: "var(--space-4)" }}>Questions & answers</h2>
+          {questions.length === 0 ? (
+            <p className="empty-note">No questions yet.</p>
+          ) : (
+            <div>
+              {questions.map((q) => (
+                <div key={q.id} style={{ borderBottom: "1px solid var(--border)", paddingBlock: "var(--space-4)" }}>
+                  <p style={{ fontWeight: 600 }}>Q: {q.question}</p>
+                  {q.answer ? (
+                    <p style={{ color: "var(--fg-muted)", marginTop: "var(--space-2)" }}>A: {q.answer}</p>
+                  ) : (
+                    <p className="form-hint" style={{ marginTop: "var(--space-2)" }}>Awaiting a reply from the seller.</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          {user ? (
+            <div style={{ marginTop: "var(--space-6)" }}>
+              <AskQuestionForm productId={product.id} productSlug={product.slug} />
+            </div>
+          ) : (
+            <p className="form-hint" style={{ marginTop: "var(--space-4)" }}>
+              <Link href="/login">Sign in</Link> to ask a question.
+            </p>
           )}
         </div>
       </div>

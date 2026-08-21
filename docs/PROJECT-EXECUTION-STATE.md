@@ -537,6 +537,49 @@ rather than inventing busywork.
       real HTTP: a real seller-issued coupon renders on `/sell/coupons`;
       the real checkout page's hidden cartLines field carries the real
       seller id and line total needed to scope the preview correctly.
+- [x] **Product Q&A** — the eBay/Amazon "Ask a question" pattern; confirmed
+      absent (no model, zero matches anywhere). New `ProductQuestion`,
+      deliberately NOT gated on proof-of-purchase the way `ProductReview`
+      is — the whole point is letting someone who hasn't bought yet get a
+      real answer before they do. Any signed-in user may ask; answering is
+      ownership-scoped to the product's own seller (a cross-seller attempt
+      is indistinguishable from not found, same discipline as every other
+      ownership-scoped mutation this session).
+
+      A real modeling bug surfaced and was caught by its own integration
+      test, not by inspection: `answeredByUserId` initially referenced
+      `User`, but the service passes a `Seller` id (this app has no
+      multi-user seller accounts — Seller.ownerId's own comment: one store
+      per user in v1 — so the STORE answered, not a particular staff
+      account). The FK violation fired on the very first real write.
+      Renamed to `answeredBySellerId`, referencing `Seller` directly, the
+      same way `SellerLedgerEntry.sellerId` does. Since the first,
+      incorrect migration had only ever been applied locally (never
+      pushed), it was cleanly replaced rather than patched — dropped the
+      table, deleted its `_prisma_migrations` tracking row, hand-wrote a
+      corrected migration (`ALTER TYPE ... ADD VALUE IF NOT EXISTS` for the
+      `NotificationType` enum value, since Postgres has no `DROP VALUE` and
+      the earlier attempt had already added it for real), and applied it
+      with `prisma migrate deploy` — `migrate dev`'s own drift-detection
+      would have demanded a full destructive reset over this exact
+      self-inflicted, harmless drift.
+
+      Answering enqueues a real `question.answered` outbox message,
+      wired through the same notification pipeline as every other
+      customer-facing event this session (new `QUESTION_ANSWERED`
+      notification type). New `/sell/questions` console page — the
+      "needs a reply" queue, listing only that seller's own unanswered
+      questions. Questions section added to the product page (`#questions`
+      anchor), showing every question whether answered or not — a real
+      storefront's Q&A shows what's already been asked, not just a curated
+      answered subset.
+
+      5 new integration tests. Verified end-to-end over real HTTP: both an
+      answered and an unanswered real question render correctly on the
+      product page with the right content in each state; a guest sees a
+      "Sign in to ask a question" link instead of the interactive form;
+      the seller console's queue shows only the real unanswered question,
+      correctly excluding the already-answered one.
 
 ### Working discipline for this mandate (carried over from what already
 proved out this session — do not relax these just because the scope grew)

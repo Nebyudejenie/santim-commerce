@@ -27,7 +27,13 @@ function isUniqueViolation(error: unknown): boolean {
 
 async function createOnce(input: {
   userId: string;
-  type: "ORDER_PAID" | "ORDER_PAYMENT_FAILED" | "ORDER_LINE_FULFILLED" | "RETURN_APPROVED" | "RETURN_REJECTED";
+  type:
+    | "ORDER_PAID"
+    | "ORDER_PAYMENT_FAILED"
+    | "ORDER_LINE_FULFILLED"
+    | "RETURN_APPROVED"
+    | "RETURN_REJECTED"
+    | "QUESTION_ANSWERED";
   title: string;
   body: string;
   link?: string;
@@ -111,6 +117,23 @@ export async function notifyReturnResolved(returnRequestId: string): Promise<voi
       : `Your return for "${request.orderLine.productTitle}" (order ${request.order.orderNumber}) was declined.`,
     link: `/account/orders/${request.order.orderNumber}`,
     dedupeKey: `return-resolved:${returnRequestId}`,
+  });
+}
+
+export async function notifyQuestionAnswered(questionId: string): Promise<void> {
+  const question = await prisma.productQuestion.findUnique({
+    where: { id: questionId },
+    select: { askedByUserId: true, product: { select: { slug: true, title: true } } },
+  });
+  if (!question) return;
+
+  await createOnce({
+    userId: question.askedByUserId,
+    type: "QUESTION_ANSWERED",
+    title: `Your question about ${question.product.title} was answered`,
+    body: `The seller replied to your question about "${question.product.title}".`,
+    link: `/products/${question.product.slug}#questions`,
+    dedupeKey: `question-answered:${questionId}`,
   });
 }
 

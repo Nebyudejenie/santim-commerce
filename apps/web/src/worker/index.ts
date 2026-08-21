@@ -37,6 +37,7 @@ import {
   notifyOrderLineFulfilled,
   notifyOrderPaid,
   notifyOrderPaymentFailed,
+  notifyQuestionAnswered,
   notifyReturnResolved,
 } from "../server/notifications/notification-service.js";
 
@@ -245,6 +246,9 @@ async function deliver(topic: string, payload: unknown): Promise<void> {
   } else if (topic === "return.resolved") {
     const { returnRequestId } = payload as { returnRequestId: string };
     await notifyReturnResolved(returnRequestId);
+  } else if (topic === "question.answered") {
+    const { questionId } = payload as { questionId: string };
+    await notifyQuestionAnswered(questionId);
   }
   logger.info("outbox.delivered", { topic, payload });
 }
