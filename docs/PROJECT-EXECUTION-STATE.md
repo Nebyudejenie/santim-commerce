@@ -2290,7 +2290,43 @@ proved out this session — do not relax these just because the scope grew)
       no real HTTP E2E section: there is no new behavior for one to
       demonstrate.
 
-### Current status / where to resume (2026-08-22, commit `7d9907e`)
+- [x] **Admin search trigram indexes — closes a standing P3 finding** —
+      this project's own infra audit (see AUDIT FINDINGS below) flagged
+      `admin-queries.ts`'s `orderNumber`/`email`/`name` search as using a
+      leading-wildcard `ILIKE '%term%'` (Prisma's `contains`), which no
+      plain B-tree index can serve, and logged it as P3 ("slow at scale,
+      admin-only, not customer/payment facing") rather than fixed at the
+      time. Closed now with the exact same real fix already applied to
+      `products.title` in an earlier migration: a `pg_trgm` GIN index —
+      `pg_trgm` itself was already enabled by that migration, so this one
+      only adds the four new indexes (`orders.orderNumber`,
+      `orders.email`, `users.email`, `users.name`).
+
+      Deliberately NOT modeled in `schema.prisma`, matching
+      `products_title_trgm_idx`'s own established precedent — Prisma's
+      schema DSL has no representation for a GIN/`gin_trgm_ops` index,
+      and (confirmed by every `prisma migrate diff` run this entire
+      session) Prisma's migration tooling leaves an index it doesn't
+      recognize alone rather than trying to drop it, so this is safe to
+      manage purely via a hand-written migration.
+
+      Pure index-only change — zero application code touched, so no new
+      integration test and no real HTTP E2E section: there's no new
+      behavior to demonstrate, only a query-plan property to prove.
+      Verified for real instead: seeded 3,000 real order rows, confirmed
+      via `EXPLAIN` that Postgres correctly chooses a sequential scan at
+      this size (the right call, not a sign the index doesn't work), then
+      forced `enable_seqscan = off` — the standard way to prove a new
+      index is genuinely usable without needing hundreds of thousands of
+      rows to make it the planner's natural choice — and confirmed the
+      real query plan switched to a `Bitmap Index Scan` on
+      `orders_order_number_trgm_idx` for the exact real `ILIKE
+      '%term%'` shape `admin-queries.ts`'s own search actually generates.
+      Full regression (72 unit, 281 integration, run twice) and a
+      production build pass. All seeded rows and the verify script
+      cleaned up afterward.
+
+### Current status / where to resume (2026-08-22, commit `PENDING`)
 
 Every checklist item above is `[x]`. All work through this commit is
 pushed to `main` with CI confirmed green — not just triggered, actually
@@ -2335,7 +2371,8 @@ alerts, bulk update-by-SKU CSV import, wiring the broken
 Variant.options multi-variant selector, wiring Inventory.allowBackorder,
 fixing the seller variant "Active" checkbox that could never turn back
 off, wiring Variant.costSantim into real seller margin reporting, real
-test coverage for the previously-untested cart-service.ts, and more, each confirmed genuinely absent before being built). No further
+test coverage for the previously-untested cart-service.ts, admin search
+trigram indexes, and more, each confirmed genuinely absent before being built). No further
 specific candidate is currently queued — the systematic dead-field
 audit's one remaining finding, `User.emailVerifiedAt`, is confirmed dead
 but correctly out of scope (see the compare-at entry above for why).
@@ -2524,10 +2561,11 @@ limiting, container, K8s manifests, Trivy ignore)
   implicit default); 4 Cascade-on-Order children identified as a latent
   risk and fixed (#11 above). Several real missing-index gaps found and
   fixed for orders/payment_intents/inventory_reservations (#11). One
-  smaller, NOT yet fixed: `admin-queries.ts`'s orderNumber/email search
-  uses a leading-wildcard `ILIKE '%term%'`, which no B-tree index can
-  serve — would need `pg_trgm`/GIN. Admin-only feature, not payment/
-  customer-critical — logged as P3, not fixed this pass.
+  smaller finding at the time: `admin-queries.ts`'s orderNumber/email
+  search uses a leading-wildcard `ILIKE '%term%'`, which no B-tree index
+  can serve — would need `pg_trgm`/GIN. Admin-only feature, not payment/
+  customer-critical — logged as P3, not fixed in this pass (since fixed,
+  see the "Admin search trigram indexes" roadmap entry).
 - **Migrations**: all 4 (3 original + the new indexes/FK one) confirmed
   purely additive — no `DROP COLUMN`/`DROP TABLE`/destructive `ALTER`.
 - **Security headers & rate limiting**: was a complete gap, now fixed
@@ -2587,9 +2625,8 @@ validation against a real cluster, backup/restore) may still surface P1s
 
 ## P3 (improvement / backlog — must not block release)
 
-- Admin orderNumber/email search has no trigram index for its `ILIKE
-  '%term%'` pattern — slow at scale, admin-only, not customer/payment
-  facing.
+- ~~Admin orderNumber/email search has no trigram index~~ — FIXED, see
+  the "Admin search trigram indexes" roadmap entry above.
 - Dockerfile base image pinned to a tag (`22.23.2-alpine`), not a digest.
 
 ## TESTS PASSED
