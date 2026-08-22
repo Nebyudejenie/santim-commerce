@@ -2588,7 +2588,12 @@ limiting, container, K8s manifests, Trivy ignore)
   networkpolicy (real default-deny, not a no-op), no hardcoded secrets —
   all confirmed clean, nothing to fix.
 - **Trivy ignore file**: confirmed high-quality, dated, reasoned
-  justifications for all 8 entries — nothing to fix.
+  justifications for all entries — nothing to fix. A 9th entry
+  (`CVE-2026-73566`) was added later, 2026-08-22, when CI's Docker
+  build+scan job started failing on `main` after this newly-published
+  CVE landed in Trivy's database — the same already-analyzed npm-
+  bundled `tar@7.5.11` the first two `tar` entries already cover, not a
+  new component or a new reachability question.
 
 ## ACTIVE WORK
 
