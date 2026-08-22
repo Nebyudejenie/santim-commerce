@@ -33,6 +33,11 @@
 CVE-2026-59873
 # tar — DoS via malformed tar archive header (fixed 7.5.18)
 CVE-2026-59874
+# tar — DoS via crafted long-path tar (fixed 7.5.21; same npm 10.9.8-vendored
+# 7.5.11 as the two tar entries above — newly published 2026-08-22, not a
+# new component or a new reachability question, the identical already-
+# analyzed npm-bundled tar just getting a third disclosure)
+CVE-2026-73566
 # brace-expansion — DoS via exponential-time complexity (fixed 2.1.2 on the
 # 2.x line; npm 10.9.8 vendors 2.0.2)
 CVE-2026-13149
